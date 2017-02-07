@@ -3,6 +3,7 @@
 Created on Sat Jan 28 09:28:54 2017
 
 @author: rick
+kijken of dit werkt.
 """
 import numpy as np
 from random import random
