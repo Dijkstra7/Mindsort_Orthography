@@ -17,7 +17,7 @@ class CombinedModel:
     TODO:
     - find a good representation for the gaussian curves and how to add them.
     """
-    sim_score = 0
+    similarity_score = 0
 
     def __init__(self, base_word, compare_word):
         self.similarity_score = \

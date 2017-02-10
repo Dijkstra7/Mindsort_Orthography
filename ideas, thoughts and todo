@@ -1,0 +1,8 @@
+zelfde gaussian als bij spatial coding gebruiken bij combined model
+Moet ik een lijst van optionele banks maken?
+
+TODO: 
+- in spatial_model:
+ - implementeren van match en van resPhase
+
+- implementeren van bigram_model
