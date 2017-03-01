@@ -18,6 +18,8 @@ def closest_to_0(current, contender):
 def closer_to_0(current, contender):
     if contender is None:
         return False
+    if current is None:
+        return True
     if abs(current)-abs(contender) > 0:
         return True
     return False
@@ -37,14 +39,13 @@ class SpatialModel:
     sigma_0 = 0.48  # As stated in table 3 in spatial coding.
     k_0 = 0.24      # As stated in table 3 in spatial coding.
     sigma = 0
-    bank_of_receivers = []   # Not sure if needed
+    banks_of_receivers = []
     base_word = 'spam'
     compare_word = 'eggs'
 
     def __init__(self, base_word, compare_word):
         sigma = self.calculate_sigma(len(compare_word))
         self.sigma = sigma
-        print sigma
         # self.similarity_score = \
         #    self.calculate_similarity(base_word, compare_word)
         self.initialise_receivers(base_word, compare_word, sigma)
@@ -59,18 +60,18 @@ class SpatialModel:
         """
         # Create the receivers.
         for position, identity in enumerate(template):
-            self.bank_of_receivers.append(Receiver(identity, len(input_),
-                                                   position, sigma))
+            self.banks_of_receivers.append(Bank(identity, len(input_),
+                                                position, sigma))
 
         # Update the elimination within banks
         for position, identity in enumerate(input_):
-            for bank_pos, bank in enumerate(self.bank_of_receivers):
-                bank.update_clones(identity, position, bank_pos)
+            for bank_pos, bank in enumerate(self.banks_of_receivers):
+                bank.update_receivers(identity, position, bank_pos)
 
         # Update the elmimination between banks
-        for bank in self.bank_of_receivers:
-            if bank.winning_clone is not None:
-                bank.cross_bank_winner(self.bank_of_receivers)
+        for bank in self.banks_of_receivers:
+            if bank.win_rec_pos is not None:
+                bank.cross_bank_winner(self.banks_of_receivers)
 
     def print_banks(self, start=None, stop=None, step=1):
         """
@@ -78,11 +79,11 @@ class SpatialModel:
         """
         if start is None:
             start = 0
-            stop = len(self.bank_of_receivers)
+            stop = len(self.banks_of_receivers)
         if stop is None:
             stop = start+1
         for bank in range(start, stop, step):
-            self.bank_of_receivers[bank].printself()
+            self.banks_of_receivers[bank].printself()
 
     def calculate_sigma(self, length):
         """ equation 3 in spatial coding
@@ -112,7 +113,7 @@ class SpatialModel:
 
         """
         super_position_score = 0
-        for bank in self.bank_of_receivers:
+        for bank in self.banks_of_receivers:
             winning_receiver_score = bank.receiver(position, time)
             super_position_score = super_position_score + \
                 winning_receiver_score
@@ -131,13 +132,14 @@ class SpatialModel:
                                                    compare_length), time)
         len_word = len(self.base_word)
         match = 1/len_word*self.super_position(res_phase, time)
+        print res_phase
         return match
 
     def find_resonating_phase(self, max_dist, time):
         best_pos = (0, 0)
         for pos in range(-1*max_dist, max_dist):
             score = 0
-            for bank in self.bank_of_receivers:
+            for bank in self.banks_of_receivers:
                 score = score + bank.receiver(pos, time)
             if score > best_pos[1]:
                 best_pos = (pos, score)
@@ -151,43 +153,51 @@ class SpatialModel:
             'eat sky'
 
 
-class Receiver:
+class Bank:
     """
     the structure of a receiver
     """
     identity = 'a'
-    clones = []
+    receivers = []
     position = -1
-    winning_clone = None
+    win_rec_pos = -1
+    winning_receiver_activation = 0
     sigma = 0
 
-    def __init__(self, identity, n_clones, position, sigma):
+    def __init__(self, identity, n_receivers, position, sigma):
         self.identity = identity
-        clones = []
-        for clone in range(n_clones):
-            clones.append(None)
-        self.clones = clones
+        receivers = []
+        for id_receiver in range(n_receivers):
+            receivers.append(Receiver(id_receiver, False))
+        self.receivers = receivers
         self.position = position
         self.sigma = sigma
 
-    def update_clones(self, identity_input, pos_input, pos_self):
+    def update_receivers(self, identity_input, pos_input, pos_self):
         if self.identity == identity_input:
-            self.clones[pos_input] = self.receiver(pos_input, 0)
+            self.receivers[pos_input].set_delay(pos_self)
         self.select_winner()
 
     def select_winner(self):
-        winning_clone = 99
-        for id_clone, clone in enumerate(self.clones):
-            if closer_to_0(winning_clone, clone):
-                self.winning_clone = id_clone
-                winning_clone = clone
+        win_id = 0
+        self.receivers[0].won()
+        for id_r, r in enumerate(self.receivers):
+            if closer_to_0(self.receivers[win_id].delay, r.delay):
+                self.receivers[win_id].lost()
+                self.winning_receiver = id_r
+                self.winning_clone_activation = \
+                    self.receiver(self.position - self.winning_receiver, 0)
+                win_id = id_r
+                self.receivers[win_id].won()
 
     def cross_bank_winner(self, bank):
-        for other_clones in bank:
-            if self.identity == other_clones.identity:
-                if closer_to_0(self.clones[self.winning_clone],
-                               other_clones.clones[self.winning_clone]):
-                    self.winning_clone = None
+        for other_rec in bank:
+            if self.identity == other_rec.identity:
+                if closer_to_0(other_rec.receivers[self.win_rec_pos].delay,
+                               self.receivers[self.win_rec_pos].delay):
+                    self.receivers[self.win_rec_pos].lost()
+                    self.win_rec_pos = None
+                    self.winning_receiver_activation = 0
                     break
 
     def signal(self, letter_position, time):
@@ -202,17 +212,18 @@ class Receiver:
         Because the second part of this equation is equal to the spatial
         equation, I changed it here.
         """
-        return self.activation(time)*self.spatial(letter_position)
+        return self.activation(letter_position,
+                               time)*self.spatial(letter_position)
 
-    def activation(self, time):
+    def activation(self, position, time):
         """ Calculate the activation level of a clone at a time.
 
         If there is a winning clone, the activation given for that clone is 1
         else there is no clone in this bank firing and the activation is 0
         """
-        if self.winning_clone is None:
-            return 0
-        return 1
+        if self.win_rec_pos == position:
+            return 1
+        return 0
 
     def spatial(self, letter_pos):
         """ equation 1 in spatial coding
@@ -247,16 +258,35 @@ class Receiver:
 
     def printself(self):
         print self.identity
-        for id_, clone in enumerate(self.clones):
+        for id_, rec in enumerate(self.receivers):
             suffix = ''
-            if id_ == self.winning_clone:
+            if rec.winning == True:
                 suffix = ' <= winner'
-            print str(id_+1)+" "+str(clone)+suffix
+            print str(id_+1)+" "+str(rec.delay)+suffix
+
+
+class Receiver:
+    winning = False
+    position = None
+    delay = None
+
+    def __init__(self, position, winning):
+        self.winning = winning
+        self.position = position
+
+    def won(self):
+        self.winning = True
+
+    def lost(self):
+        self.winning = False
+
+    def set_delay(self, difference):
+        self.delay = self.position - difference
 
 
 def test():
-    sm = SpatialModel('stoop', 'stoop')
+    sm = SpatialModel('brain', 'wetbrain')
     sm.print_banks()
-    print sm.match()
+    print str(sm.match())
 
 test()
