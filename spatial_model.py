@@ -93,18 +93,6 @@ class SpatialModel:
         """
         return self.sigma_0+self.k_0*length
 
-    def winning_receiver(self, receivers, position, time):
-        """ calculate the score of the winning receiver
-
-        The winning receiver is that receiver that is closest to 0.
-        """
-        winning_score = 99
-        for (rec_letter, rec_pos) in receivers:
-            rec_score = self.receiver(rec_pos, None, None, rec_letter,
-                                      position, time)
-            winning_score = closest_to_0(winning_score, rec_score)
-        return winning_score
-
     def super_position(self, position, time):
         """ equation 10 in spatial coding.
 
@@ -112,7 +100,7 @@ class SpatialModel:
         functions for each of the template’s receivers'
 
         """
-        super_position_score = 0
+        super_position_score = 2
         for bank in self.banks_of_receivers:
             winning_receiver_score = bank.receiver(position, time)
             super_position_score = super_position_score + \
@@ -124,33 +112,30 @@ class SpatialModel:
 
         matching the base_word with the compare_word.
         """
-        match = 0
+        match_score = 0
         time = 0
         base_length = len(self.base_word)
         compare_length = len(self.compare_word)
         res_phase = self.find_resonating_phase(abs(base_length -
-                                                   compare_length), time)
+                                                   compare_length) + 1, time)
         len_word = len(self.base_word)
-        match = 1/len_word*self.super_position(res_phase, time)
+        match_score = 1.0/len_word*self.super_position(res_phase, time)
         print res_phase
-        return match
+        return match_score
 
     def find_resonating_phase(self, max_dist, time):
-        best_pos = (0, 0)
-        for pos in range(-1*max_dist, max_dist):
-            score = 0
-            for bank in self.banks_of_receivers:
-                score = score + bank.receiver(pos, time)
+        """
+        The resonating phase corresponds to the value of the signal-weight
+         difference where the superposition function is at its peak
+        """
+        min_dist = -1*max_dist
+        best_pos = (min_dist, self.super_position(min_dist, 0))
+        for pos in range(min_dist, max_dist):
+            score = self.super_position(pos, 0)
             if score > best_pos[1]:
                 best_pos = (pos, score)
+            print score, pos, best_pos
         return best_pos[0]
-
-    def calculate_similarity(self, time):
-        return 1  # receiver_output(time)+ext_letter_match(time)
-
-    def ext_letter_match(time):
-        for i in pie:
-            'eat sky'
 
 
 class Bank:
@@ -161,14 +146,13 @@ class Bank:
     receivers = []
     position = -1
     win_rec_pos = -1
-    winning_receiver_activation = 0
     sigma = 0
 
     def __init__(self, identity, n_receivers, position, sigma):
         self.identity = identity
         receivers = []
-        for id_receiver in range(n_receivers):
-            receivers.append(Receiver(id_receiver, False))
+        for pos_receiver in range(n_receivers):
+            receivers.append(Receiver(pos_receiver, False, sigma))
         self.receivers = receivers
         self.position = position
         self.sigma = sigma
@@ -200,6 +184,59 @@ class Bank:
                     self.winning_receiver_activation = 0
                     break
 
+    def receiver(self, letter_position, time):
+        """ return the receiver value for the winning receiver
+
+        TODO: check nonetype cause
+        """
+        if self.win_rec_pos is None:
+            return 0
+        return self.receivers[self.win_rec_pos].receiver(letter_position,
+                                                         time)
+
+    def printself(self):
+        print self.identity
+        for id_, rec in enumerate(self.receivers):
+            suffix = ''
+            if rec.winning is True:
+                suffix = ' <= winner'
+            print str(id_+1)+" "+str(rec.delay)+suffix
+
+
+class Receiver:
+    winning = False
+    position = None
+    delay = None
+    sigma = 0
+
+    def __init__(self, position, winning, sigma):
+        self.winning = winning
+        self.position = position
+        self.sigma = sigma
+
+    def won(self):
+        self.winning = True
+
+    def lost(self):
+        self.winning = False
+
+    def set_delay(self, difference):
+        self.delay = self.position - difference
+
+    def receiver(self, letter_position, time):
+        """ equation 9 in spatial coding.
+
+        This equation calculates the activation of a receiver in a bank on a
+        channel.
+        The bank is the expected letter position.
+
+        Not sure if identity or channel has to be implemented. in the SC
+        paper
+        it stands for the identity of the i'th word.
+        """
+        return self.signal(letter_position,
+                           time) - self.calculate_delay(letter_position)
+
     def signal(self, letter_position, time):
         """ Equation 4 in spatial coding
 
@@ -221,7 +258,7 @@ class Bank:
         If there is a winning clone, the activation given for that clone is 1
         else there is no clone in this bank firing and the activation is 0
         """
-        if self.win_rec_pos == position:
+        if self.winning is True:
             return 1
         return 0
 
@@ -235,57 +272,18 @@ class Bank:
         power = (letter_pos-self.position)/self.sigma
         return math.exp(-1*power**2)
 
-    def delay(self, letter_pos):
+    def calculate_delay(self, letter_pos):
         """ the delay implemented by the SC model
 
         The value of delayri corresponds to the expected ordinal position of
         the corresponding letter within the template.
         """
-        return self.position-letter_pos
-
-    def receiver(self, letter_position, time):
-        """ equation 9 in spatial coding.
-
-        This equation calculates the activation of a receiver in a bank on a
-        channel.
-        The bank is the expected letter position.
-
-        Not sure if identity or channel has to be implemented. in the SC
-        paper
-        it stands for the identity of the i'th word.
-        """
-        return self.signal(letter_position, time)-self.delay(letter_position)
-
-    def printself(self):
-        print self.identity
-        for id_, rec in enumerate(self.receivers):
-            suffix = ''
-            if rec.winning == True:
-                suffix = ' <= winner'
-            print str(id_+1)+" "+str(rec.delay)+suffix
-
-
-class Receiver:
-    winning = False
-    position = None
-    delay = None
-
-    def __init__(self, position, winning):
-        self.winning = winning
-        self.position = position
-
-    def won(self):
-        self.winning = True
-
-    def lost(self):
-        self.winning = False
-
-    def set_delay(self, difference):
-        self.delay = self.position - difference
+        self.delay = self.position-letter_pos
+        return self.delay
 
 
 def test():
-    sm = SpatialModel('brain', 'wetbrain')
+    sm = SpatialModel('stoop', 'stoop')
     sm.print_banks()
     print str(sm.match())
 
