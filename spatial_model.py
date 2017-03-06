@@ -34,41 +34,53 @@ class SpatialModel:
     now.
     TODO: implement SC
     """
-
+    # Set up the parameters
     similarity_score = 0
     sigma_0 = 0.48  # As stated in table 3 in spatial coding.
     k_0 = 0.24      # As stated in table 3 in spatial coding.
     sigma = 0
     banks_of_receivers = []
+    weight = 0
     base_word = 'spam'
     compare_word = 'eggs'
+    ELM = True
 
-    def __init__(self, base_word, compare_word):
-        sigma = self.calculate_sigma(len(compare_word))
-        self.sigma = sigma
-        # self.similarity_score = \
-        #    self.calculate_similarity(base_word, compare_word)
-        self.initialise_receivers(base_word, compare_word, sigma)
+    def __init__(self, base_word, compare_word, ELM=True):
         self.base_word = base_word
         self.compare_word = compare_word
+        self.ELM = ELM
+
+        # Calculate the sigma and weight of the gaussians.
+        sigma = self.calculate_sigma(len(compare_word))
+        self.sigma = sigma
+        self.weight = 1.0/(len(base_word))
+        if ELM:
+            self.weight = 1.0/(len(base_word)+2)
+
+        # Set up the receivers
+        self.initialise_receivers(base_word, compare_word, sigma)
 
     def initialise_receivers(self, template, input_, sigma):
         """
-        initialise the receivers from the template, and activate them by
-        finding the winning receivers based on competition within and between
-        banks.
+        - Initialise the receivers based on the template
+        - Activate the receivers
+        - Deactivate the not-winning receivers
         """
         # Create the receivers.
         for position, identity in enumerate(template):
             self.banks_of_receivers.append(Bank(identity, len(input_),
                                                 position, sigma))
 
-        # Update the elimination within banks
+        # Activate the receivers
         for position, identity in enumerate(input_):
             for bank_pos, bank in enumerate(self.banks_of_receivers):
-                bank.update_receivers(identity, position, bank_pos)
+                bank.activate_receivers(identity, position, bank_pos)
 
-        # Update the elmimination between banks
+        # De-activate losing recievers in bank
+        for bank in self.banks_of_receivers:
+            bank.update_receivers()
+
+        # Eliminate losing receivers between banks
         for bank in self.banks_of_receivers:
             if bank.win_rec_pos is not None:
                 bank.cross_bank_winner(self.banks_of_receivers)
@@ -91,7 +103,7 @@ class SpatialModel:
         the assumption that longer words wil have bigger sigma's is
         implemented here.
         """
-        return self.sigma_0+self.k_0*length
+        return 1.2  # self.sigma_0 + self.k_0*length
 
     def super_position(self, position, time):
         """ equation 10 in spatial coding.
@@ -100,9 +112,10 @@ class SpatialModel:
         functions for each of the template’s receivers'
 
         """
-        super_position_score = 2
+        super_position_score = 0
         for bank in self.banks_of_receivers:
-            winning_receiver_score = bank.receiver(position, time)
+            winning_receiver_score = self.weight*bank.receiver(position,
+                                                               time)
             super_position_score = super_position_score + \
                 winning_receiver_score
         return super_position_score
@@ -118,9 +131,7 @@ class SpatialModel:
         compare_length = len(self.compare_word)
         res_phase = self.find_resonating_phase(abs(base_length -
                                                    compare_length) + 1, time)
-        len_word = len(self.base_word)
-        match_score = 1.0/len_word*self.super_position(res_phase, time)
-        print res_phase
+        match_score = self.super_position(res_phase, time)+self.ELM_score()
         return match_score
 
     def find_resonating_phase(self, max_dist, time):
@@ -134,8 +145,17 @@ class SpatialModel:
             score = self.super_position(pos, 0)
             if score > best_pos[1]:
                 best_pos = (pos, score)
-            print score, pos, best_pos
         return best_pos[0]
+
+    def ELM_score(self):
+        if self.ELM is False:
+            return 0
+        score = 0
+        if self.base_word[0] == self.compare_word[0]:
+            score = score + self.weight
+        if self.base_word[-1] == self.compare_word[-1]:
+            score = score + self.weight
+        return score
 
 
 class Bank:
@@ -145,7 +165,7 @@ class Bank:
     identity = 'a'
     receivers = []
     position = -1
-    win_rec_pos = -1
+    win_rec_pos = 0
     sigma = 0
 
     def __init__(self, identity, n_receivers, position, sigma):
@@ -157,37 +177,37 @@ class Bank:
         self.position = position
         self.sigma = sigma
 
-    def update_receivers(self, identity_input, pos_input, pos_self):
-        if self.identity == identity_input:
+    def activate_receivers(self, id_input, pos_input, pos_self):
+        if self.identity == id_input:
             self.receivers[pos_input].set_delay(pos_self)
-        self.select_winner()
 
-    def select_winner(self):
+    def update_receivers(self):
         win_id = 0
         self.receivers[0].won()
         for id_r, r in enumerate(self.receivers):
             if closer_to_0(self.receivers[win_id].delay, r.delay):
                 self.receivers[win_id].lost()
-                self.winning_receiver = id_r
+                self.win_rec_pos = id_r
                 self.winning_clone_activation = \
-                    self.receiver(self.position - self.winning_receiver, 0)
+                    self.receiver(self.position, 0)
                 win_id = id_r
                 self.receivers[win_id].won()
 
     def cross_bank_winner(self, bank):
+        """ De-activates the reeiverbank if there is another receiver with
+        less delay.
+        """
         for other_rec in bank:
             if self.identity == other_rec.identity:
-                if closer_to_0(other_rec.receivers[self.win_rec_pos].delay,
-                               self.receivers[self.win_rec_pos].delay):
+                if closer_to_0(self.receivers[self.win_rec_pos].delay,
+                               other_rec.receivers[self.win_rec_pos].delay):
                     self.receivers[self.win_rec_pos].lost()
                     self.win_rec_pos = None
                     self.winning_receiver_activation = 0
                     break
 
     def receiver(self, letter_position, time):
-        """ return the receiver value for the winning receiver
-
-        TODO: check nonetype cause
+        """ Return the receiver value for the winning receiver.
         """
         if self.win_rec_pos is None:
             return 0
@@ -235,7 +255,7 @@ class Receiver:
         it stands for the identity of the i'th word.
         """
         return self.signal(letter_position,
-                           time) - self.calculate_delay(letter_position)
+                           time)  # - self.calculate_delay(letter_position)
 
     def signal(self, letter_position, time):
         """ Equation 4 in spatial coding
@@ -269,7 +289,9 @@ class Receiver:
         is the (veridical) serial position of the letter within the input
         stimulus.
         """
-        power = (letter_pos-self.position)/self.sigma
+        if self.delay is None:             # Ugly hack
+            return 0
+        power = (letter_pos-self.delay)/self.sigma
         return math.exp(-1*power**2)
 
     def calculate_delay(self, letter_pos):
@@ -278,13 +300,12 @@ class Receiver:
         The value of delayri corresponds to the expected ordinal position of
         the corresponding letter within the template.
         """
-        self.delay = self.position-letter_pos
-        return self.delay
+        return self.position-letter_pos
 
 
 def test():
-    sm = SpatialModel('stoop', 'stoop')
+    sm = SpatialModel('stale', 'smile', False)
     sm.print_banks()
-    print str(sm.match())
+    print 'Match equals:', str(sm.match())
 
 test()
