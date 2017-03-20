@@ -11,6 +11,8 @@ import random
 
 from combined_model import CombinedModel
 from spatial_model import SpatialModel
+from bigram_model import BigramModel
+from holographic_model import HoloModel
 
 
 def words_to_be_compared():

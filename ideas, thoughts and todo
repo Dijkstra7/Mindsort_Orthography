@@ -3,6 +3,9 @@ Moet ik een lijst van optionele banks maken?
 
 TODO: 
 - in spatial_model:
- - implementeren van match en van resPhase
+ - fix bug in calculating receiver in resphase.
 
-- implementeren van bigram_model
+???:
+Wat moet ik doen met een onvindbaar paper? Hoe vind ik het eerste bigram paper?
+
+TODO: make orthogonal vectors
