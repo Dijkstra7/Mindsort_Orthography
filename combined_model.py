@@ -9,6 +9,7 @@ will be implemented.
 """
 
 # Imports.
+import math
 
 
 class CombinedModel:
@@ -18,54 +19,28 @@ class CombinedModel:
     - find a good representation for the gaussian curves and how to add them.
     """
     similarity_score = 0
+    template = ""
+    compare = ""
 
     def __init__(self, base_word, compare_word):
+        self.template = base_word
+        self.compare = compare_word
+        self.sigma = 0.48+0.24*len(base_word)
         self.similarity_score = \
             self.calculate_similarity(base_word, compare_word)
 
-    def add_curves(curve1, curve2):
-        # Add the gaussian curves together into a new curve.
-        # TODO: Make better addding method.
-        added_curve = []
-        for (score1, score2) in zip(curve1, curve2):
-            added_curve.append(score1+score2)
-        return added_curve
+    def match(self):
+        return self.similarity_score
 
-    def make_curve(letter):
-        # TODO: make a representation of a curve.
-        return 1
-
-    def calculate_gaussian_curves(self, word):
+    def make_bigram_curves(self, base_curves, positions):
         """
-        calculate the curve of a single letter
-
-        TODO:
-        - figure out the best representation of curves, preferrably a function.
+        calculating the bigrams of a word and their scores
         """
-        letters = []
-        curves = []
-        for letter in word:
-            letters.append(letter)
-            curves.append(self.make_curve(letter))
-        return letters, curves
-
-    def calculate_bigram_scores(self, letters, gausscurves):
-        """
-        calculating the bigrams of a word and (optionally) their scores
-
-        TODO: implement the method further
-        """
-        bigrams = []
-        scores = []
-        for (first_letter, first_curve) in zip(letters, gausscurves):
-            for (second_letter, second_curve) in zip(letters, gausscurves):
-                bigram = first_letter+second_letter
-                bigrams.append(bigram)
-
-                score = self.add_curves('first_curve', 'second_curve')
-                scores.append(score)
-
-        return (bigrams, scores)
+        bigram_curves = []
+        for first in base_curves:
+            for second in base_curves:
+                bigram_curves.append(BigramCurve(first, second, positions))
+        return bigram_curves
 
     def calculate_similarity(self, base_word='spam', compare_word='eggs'):
         """
@@ -79,16 +54,93 @@ class CombinedModel:
             - from letters to gaussian curves.
             - from lettercurves to bigram curves or bigram scores.
         """
-        base_letters, base_gausscurves = \
-            self.calculate_gaussian_curves(base_word)
-        base_bigrams_scores = self.calculate_bigram_scores(base_letters,
-                                                           base_gausscurves)
+        # calculate the templateword scores.
+        template_base_curves = []
+        for position, identity in enumerate(self.template):
+            template_base_curves.append(BaseCurve(identity, position,
+                                                  self.sigma))
+        template_bigrams_scores = \
+            self.make_bigram_curves(template_base_curves, len(self.template))
 
-        compare_letters, compare_gausscurves = \
-            self.calculate_gaussian_curves(compare_word)
-        compare_bigrams_scores = \
-            self.calculate_bigram_scores(compare_letters, compare_gausscurves)
+        # calculate the compareword scores.
+        compare_base_curves = []
+        for position, identity in enumerate(self.compare):
+            compare_base_curves.append(BaseCurve(identity, position,
+                                                 self.sigma))
+        compare_bigrams_scores = self.make_bigram_curves(compare_base_curves,
+                                                         len(self.compare))
 
-        similarity = self.calculate_bigram_similarity(base_bigrams_scores,
-                                                      compare_bigrams_scores)
+        # Calculate the similarity between template and compare.
+        similarity = self.calc_bigram_similarity(template_bigrams_scores,
+                                                 compare_bigrams_scores)
+
+        # Calculate the maximum similarity.
+        max_similarity = self.calc_bigram_similarity(template_bigrams_scores,
+                                                     template_bigrams_scores)
+
+        # Return the normalized similarity.
+        return (1.0 * similarity) / (1.0 * max_similarity)
+
+    def calc_bigram_similarity(self, scores_1, scores_2):
+        similarity = 0.0
+        for score_1 in scores_1:
+            for score_2 in scores_2:
+                if score_1.identity == score_2.identity:
+                    for pos in range(max(len(score_1.scores),
+                                         len(score_2.scores))):
+                        similarity = similarity + \
+                            score_1.scores[pos] * score_2.scores[pos]
         return similarity
+
+
+class BaseCurve:
+
+    identity = ""
+    position = -1
+    sigma = 0
+
+    def __init__(self, identity, position, sigma):
+        self.sigma = sigma
+        self.identity = identity
+        self.position = position
+
+    def score(self, distance):
+        power = (self.position-distance)/self.sigma
+        return math.exp(-1.0*power**2)
+
+
+class BigramCurve:
+
+    first = None
+    second = None
+    identity = ""
+    scores = []
+
+    def __init__(self, first, second, num_scores):
+        self.first = first
+        self.second = second
+        self.calculate_scores(num_scores)
+        self.identity = first.identity + second.identity
+
+    def calculate_scores(self, num):
+        for i in range(num-1):
+            self.scores.append(self.first.score(i)+self.second.score(i+1))
+
+
+def test():
+    template = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+                "21436587", "125436", "13d45", "12345", "34567", "13457",
+                "123267", "123567"]
+    compare = ["12345", "12345", "12345", "12345", "12345", "12345",
+               "123456", "123456", "12345", "12345", "12345", "12345",
+               "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+               "1232567", "1232567", ]
+    for i in range(20):
+        cm = CombinedModel(template[i], compare[i])
+        # sm.print_banks()
+        print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
+            'match equals:', str(cm.match())
+
+
+test()

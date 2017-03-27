@@ -48,6 +48,7 @@ class SpatialModel:
     def __init__(self, base_word, compare_word, ELM=True):
         self.base_word = base_word
         self.compare_word = compare_word
+        self.banks_of_receivers = []
         self.ELM = ELM
 
         # Calculate the sigma and weight of the gaussians.
@@ -56,7 +57,6 @@ class SpatialModel:
         self.weight = 1.0/(len(base_word))
         if ELM:
             self.weight = 1.0/(len(base_word)+2)
-
         # Set up the receivers
         self.initialise_receivers(base_word, compare_word, sigma)
 
@@ -67,11 +67,13 @@ class SpatialModel:
         - Deactivate the not-winning receivers
         """
         # Create the receivers.
+        # print "-----------create receivers-----------"
         for position, identity in enumerate(template):
             self.banks_of_receivers.append(Bank(identity, len(input_),
                                                 position, sigma))
 
         # Activate the receivers
+        # print "-----------activate receivers---------"
         for position, identity in enumerate(input_):
             for bank_pos, bank in enumerate(self.banks_of_receivers):
                 bank.activate_receivers(identity, position, bank_pos)
@@ -103,7 +105,7 @@ class SpatialModel:
         the assumption that longer words wil have bigger sigma's is
         implemented here.
         """
-        return 1.2  # self.sigma_0 + self.k_0*length
+        return 1.25  # self.sigma_0 + self.k_0*length
 
     def super_position(self, position, time):
         """ equation 10 in spatial coding.
@@ -199,6 +201,8 @@ class Bank:
         """
         for other_rec in bank:
             if self.identity == other_rec.identity:
+                if self.win_rec_pos >= len(other_rec.receivers):
+                    break
                 if closer_to_0(self.receivers[self.win_rec_pos].delay,
                                other_rec.receivers[self.win_rec_pos].delay):
                     self.receivers[self.win_rec_pos].lost()
@@ -215,7 +219,7 @@ class Bank:
                                                          time)
 
     def printself(self):
-        print self.identity
+        print 'id: ', self.identity
         for id_, rec in enumerate(self.receivers):
             suffix = ''
             if rec.winning is True:
@@ -246,7 +250,7 @@ class Receiver:
     def receiver(self, letter_position, time):
         """ equation 9 in spatial coding.
 
-        This equation calculates the activation of a receiver in a bank on a
+        self equation calculates the activation of a receiver in a bank on a
         channel.
         The bank is the expected letter position.
 
@@ -304,8 +308,18 @@ class Receiver:
 
 
 def test():
-    sm = SpatialModel('stale', 'smile', False)
-    sm.print_banks()
-    print 'Match equals:', str(sm.match())
+    template = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+                "21436587", "125436", "13d45", "12345", "34567", "13457",
+                "123267", "123567"]
+    compare = ["12345", "12345", "12345", "12345", "12345", "12345",
+               "123456", "123456", "12345", "12345", "12345", "12345",
+               "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+               "1232567", "1232567", ]
+    for i in range(20):
+        sm = SpatialModel(template[i], compare[i], True)
+        # sm.print_banks()
+        print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
+            'match equals:', str(sm.match())
 
 test()

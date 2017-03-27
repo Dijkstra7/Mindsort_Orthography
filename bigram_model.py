@@ -18,24 +18,24 @@ class BigramModel:
     similarity_score = 0
     template_bigrams = []
 
-    def __init__(this, template, compare):
-        this.template = template
-        this.compare = compare
-        this.make_template_bigrams()
-        this.calculate_similarity_score()
+    def __init__(self, template, compare):
+        self.template = template
+        self.compare = compare
+        self.make_template_bigrams()
+        self.calculate_similarity_score()
 
-    def make_template_bigrams(this):
+    def make_template_bigrams(self):
         """ For each level of seperation between the bigrams, make a new list of
         those bigrams.
 
         i_letter_sep+1 has a plus 1 because the next letter is also already 1
         position removed when there is a zero-letter seperation."""
-        temp = this.template
+        temp = self.template
         for i_letter_sep in range(3):
-            this.template_bigrams.append(this.make_bigrams(i_letter_sep+1,
+            self.template_bigrams.append(self.make_bigrams(i_letter_sep+1,
                                                            temp))
 
-    def make_bigrams(this, sep, temp):
+    def make_bigrams(self, sep, temp):
         """ make the bigrams seperated by sep - 1 letters (-1, see comment in
         make_template_bigrams).
 
@@ -47,16 +47,16 @@ class BigramModel:
             bigrams.append(first+last)  # The one-letter seperated bigrams
         return bigrams
 
-    def calculate_similarity_score(this):
+    def calculate_similarity_score(self):
         """
         similarity_score is calculated by taking the maximum possible score
         and dividing it by the activationscore.
         """
-        full_score = this.calculate_bigram_match(this.template, this.template)
-        score = this.calculate_bigram_match(this.template, this.compare)
-        this.similarity_score = score/full_score
+        full_score = self.calculate_bigram_match(self.template, self.template)
+        score = self.calculate_bigram_match(self.template, self.compare)
+        self.similarity_score = score/full_score
 
-    def calculate_bigram_match(this, temp_word, comp_word):
+    def calculate_bigram_match(self, temp_word, comp_word):
         """
         bigram_match is the activation score of a word on the template word:
         "each OBs activation is multiplied by the corresponding weight, and
@@ -68,12 +68,12 @@ class BigramModel:
         """
         match = 0.0
         for i in range(3):
-            w = this.weight_bigrams[i]
+            w = self.weight_bigrams[i]
             match = match + \
-                w * this.sum_matching(this.make_bigrams(i+1, comp_word))
+                w * self.sum_matching(self.make_bigrams(i+1, comp_word))
         return match
 
-    def sum_matching(this, bigrams):
+    def sum_matching(self, bigrams):
         """
         For a list of bigrams (of the comparing word) the score of activated
         matches is added.
@@ -81,13 +81,13 @@ class BigramModel:
         score = 0.0
         for bigram in bigrams:
             for i in range(3):
-                if bigram in this.template_bigrams[i]:
-                    score = score + this.weight_bigrams[i]
+                if bigram in self.template_bigrams[i]:
+                    score = score + self.weight_bigrams[i]
         return score
 
 
 def test():
-    bm = BigramModel("spddm", "splam")
+    bm = BigramModel("12345", "12d45")
     print bm.similarity_score
 
 test()

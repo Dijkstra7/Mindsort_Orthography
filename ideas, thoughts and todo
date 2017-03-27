@@ -2,10 +2,11 @@ zelfde gaussian als bij spatial coding gebruiken bij combined model
 Moet ik een lijst van optionele banks maken?
 
 TODO: 
-- in spatial_model:
- - fix bug in calculating receiver in resphase.
+- in bmh: fix the sim(123345, 12345)=1,4 'bug'
 
 ???:
 Wat moet ik doen met een onvindbaar paper? Hoe vind ik het eerste bigram paper?
+Spatial Coding paper gives different result from Hannigan paper, which I would
+use.
 
-TODO: make orthogonal vectors
+TODO: Make the results similar
