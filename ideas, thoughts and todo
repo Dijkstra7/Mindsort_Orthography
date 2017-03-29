@@ -10,3 +10,6 @@ Spatial Coding paper gives different result from Hannigan paper, which I would
 use.
 
 TODO: Make the results similar
+
+Reason why spatial coding fails 19=20: in 19 the resphase aligns 4 of 6
+letters, in 20 only 3 of 6.

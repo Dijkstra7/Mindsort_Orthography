@@ -19,128 +19,223 @@ class CombinedModel:
     - find a good representation for the gaussian curves and how to add them.
     """
     similarity_score = 0
+    sigma = None
     template = ""
     compare = ""
+    letter_layer_inhibition = False
+    bigram_layer_inhibition = False
+    quadrigram_layer_inhibiton = None
+    letter_field = []
+    bigram_field = []
+    letter_field_letters = []
+    bigram_field_bigrams = []
 
     def __init__(self, base_word, compare_word):
         self.template = base_word
         self.compare = compare_word
-        self.sigma = 0.48+0.24*len(base_word)
+        self.sigma = 0.48+0.24*len(compare_word)
+        self.init_base_field(self.sigma)
+        self.sigma = 0.48+0.24*len(compare_word)
+        self.init_bigram_field(max(len(base_word), len(compare_word)))
         self.similarity_score = \
             self.calculate_similarity(base_word, compare_word)
 
+    def init_base_field(self, sigma=1.25):
+        self.letter_field = []
+        letters = []
+        for position, letter in enumerate(self.template):
+            if letter in letters:
+                continue
+            new_neuron = LetterNeuron(letter, sigma)
+            self.letter_field.append(new_neuron)
+            letters.append(letter)
+        self.letter_field_letters = letters
+
+    def init_bigram_field(self, sigma=1.25):
+        """For now just closed bigrams"""
+        self.bigram_field = []
+        bigrams = []
+        for position in range(len(self.template) - 1):
+            first_letter = self.template[position]
+            second_letter = self.template[position + 1]
+            bigram = first_letter + second_letter
+            if bigram in bigrams:  # Test if bigram already exists.
+                continue
+
+            # create neuron
+            first_neuron = self.find_letter_neuron(first_letter)
+            second_neuron = self.find_letter_neuron(second_letter)
+            new_bigram = BigramNeuron(first_neuron, second_neuron, self.sigma,
+                                      1)
+
+            # Add neuron to field
+            self.bigram_field.append(new_bigram)
+            bigrams.append(bigram)
+        self.bigram_field_bigrams = bigrams
+
+    def find_letter_neuron(self, letter):
+        index = self.letter_field_letters.index(letter)
+        return self.letter_field[index]
+
     def match(self):
         return self.similarity_score
-
-    def make_bigram_curves(self, base_curves, positions):
-        """
-        calculating the bigrams of a word and their scores
-        """
-        bigram_curves = []
-        for first in base_curves:
-            for second in base_curves:
-                bigram_curves.append(BigramCurve(first, second, positions))
-        return bigram_curves
 
     def calculate_similarity(self, base_word='spam', compare_word='eggs'):
         """
         calculate the similarity between the base word and the compare word and
         returns the similarity-value.
-
-        TODO:
-        - decide between similarity between 0 and 1 or something else.
-        - Implement all pseudocode:
-            - from word to letters.
-            - from letters to gaussian curves.
-            - from lettercurves to bigram curves or bigram scores.
         """
-        # calculate the templateword scores.
-        template_base_curves = []
-        for position, identity in enumerate(self.template):
-            template_base_curves.append(BaseCurve(identity, position,
-                                                  self.sigma))
-        template_bigrams_scores = \
-            self.make_bigram_curves(template_base_curves, len(self.template))
-
-        # calculate the compareword scores.
-        compare_base_curves = []
-        for position, identity in enumerate(self.compare):
-            compare_base_curves.append(BaseCurve(identity, position,
-                                                 self.sigma))
-        compare_bigrams_scores = self.make_bigram_curves(compare_base_curves,
-                                                         len(self.compare))
-
         # Calculate the similarity between template and compare.
-        similarity = self.calc_bigram_similarity(template_bigrams_scores,
-                                                 compare_bigrams_scores)
+        similarity = self.calc_bigram_similarity(self.compare)
 
         # Calculate the maximum similarity.
-        max_similarity = self.calc_bigram_similarity(template_bigrams_scores,
-                                                     template_bigrams_scores)
+        self.reset_fields()
+        max_similarity = self.calc_bigram_similarity(self.template)
 
         # Return the normalized similarity.
+        if max_similarity == 0:
+            return -0.0
         return (1.0 * similarity) / (1.0 * max_similarity)
 
-    def calc_bigram_similarity(self, scores_1, scores_2):
+    def reset_fields(self):
+        for neuron in self.letter_field:
+            neuron.reset()
+        for neuron in self.bigram_field:
+            neuron.reset()
+
+    def calc_bigram_similarity(self, input_):
         similarity = 0.0
-        for score_1 in scores_1:
-            for score_2 in scores_2:
-                if score_1.identity == score_2.identity:
-                    for pos in range(max(len(score_1.scores),
-                                         len(score_2.scores))):
-                        similarity = similarity + \
-                            score_1.scores[pos] * score_2.scores[pos]
-        return similarity
+
+        # activate neurons
+        for position, letter in enumerate(input_):
+            if letter in self.letter_field_letters:
+                letter_neuron = self.find_letter_neuron(letter)
+                letter_neuron.activate(position)
+
+        # calculate bigrams
+        for position, fletter in enumerate(self.template[:-1]):
+            sletter = self.template[position + 1]
+            bigram = fletter+sletter
+            similarity = similarity + \
+                self.find_bigram_neuron(bigram).activation(position)
+        return similarity / (len(self.template) - 1)  # sim / #bigrams
+
+    def find_bigram_neuron(self, bigram):
+        index = self.bigram_field_bigrams.index(bigram)
+        return self.bigram_field[index]
 
 
-class BaseCurve:
+class LetterNeuron:
+    """
+    The class for a letter Neuron. It has the positions where it is linked to
+    an bigram node stored.
+    """
 
     identity = ""
-    position = -1
-    sigma = 0
+    position = None
+    sigma = None
+    deactivation = []
 
-    def __init__(self, identity, position, sigma):
+    def __init__(self, id_, sigma=1.25):
+        self.identity = id_
+        self.position = []
         self.sigma = sigma
-        self.identity = identity
-        self.position = position
 
-    def score(self, distance):
-        power = (self.position-distance)/self.sigma
-        return math.exp(-1.0*power**2)
+    def activate(self, position):
+        self.position.append(position)
+
+    def competition(self, other_neurons, position):
+        for other_neuron in other_neurons:
+            if other_neuron.activation(position) > self.activation(position):
+                self.deactivation.append(position)
+
+    def activation(self, distance):
+        if distance in self.deactivation:
+            return 0.0
+        powers = [(position - distance) / self.sigma for position in
+                  self.position]
+        results = [math.exp(-1.0 * power ** 2) for power in powers]
+        if results == []:
+            return 0.0
+        return max(results)
+
+    def reset(self):
+        self.position = []
 
 
-class BigramCurve:
+class BigramNeuron:
 
-    first = None
-    second = None
     identity = ""
-    scores = []
+    position = None
+    sigma = None
+    first_link = None
+    second_link = None
+    weight = 0
+    deactivation = []
 
-    def __init__(self, first, second, num_scores):
-        self.first = first
-        self.second = second
-        self.calculate_scores(num_scores)
+    def __init__(self, first, second, sigma=1.25, weight=1):
         self.identity = first.identity + second.identity
+        self.first_link = first
+        self.second_link = second
+        self.position = []
+        self.sigma = sigma
+        self.weight = weight
 
-    def calculate_scores(self, num):
-        for i in range(num-1):
-            self.scores.append(self.first.score(i)+self.second.score(i+1))
+    def activate(self, position):
+        self.position.append(position)
+
+    def competition(self, other_neurons, position):
+        for other_neuron in other_neurons:
+            if other_neuron.activation(position) > self.activation(position):
+                self.deactivation.append(position)
+
+    def activation(self, distance):
+        """
+        A bigram neuron is activated by the two neurons he is linked to in
+        the letter field.
+
+        His activation depends on the distance from the activation in the
+        first neuron on the same position and the second neuron on the
+        position one right to it
+
+        If the neuron is inhibited on this location he will return 0.
+        """
+        if distance in self.deactivation:
+            return 0.0
+        return (self.first_link.activation(distance) +
+                self.second_link.activation(distance+1)) / 2
+
+    def reset(self):
+        self.position = []
 
 
 def test():
-    template = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+    template = ["testen", "12345", "1245", "123345", "123d45", "12dd5",
+                "1d345",
                 "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                 "21436587", "125436", "13d45", "12345", "34567", "13457",
                 "123267", "123567"]
-    compare = ["12345", "12345", "12345", "12345", "12345", "12345",
+    compare = ["getest", "12345", "12345", "12345", "12345", "12345",
+               "12345",
                "123456", "123456", "12345", "12345", "12345", "12345",
                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
                "1232567", "1232567", ]
-    for i in range(20):
+    for i in range(1, 21):
         cm = CombinedModel(template[i], compare[i])
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
             'match equals:', str(cm.match())
 
+
+def test2():
+    LN1 = LetterNeuron("a")
+    LN1.activate(4)
+    LN1.activate(2)
+    LN2 = LetterNeuron("b")
+    LN2.activate(4)
+    LN2.activate(3)
+    BN = BigramNeuron(2, LN1, LN2)
+    for i in range(6):
+        print BN.activation(i)
 
 test()
