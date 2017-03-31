@@ -15,8 +15,6 @@ import math
 class CombinedModel:
     """ The model that will implement my own theory of word-comparing.
 
-    TODO:
-    - find a good representation for the gaussian curves and how to add them.
     """
     similarity_score = 0
     sigma = None
@@ -27,8 +25,10 @@ class CombinedModel:
     quadrigram_layer_inhibiton = None
     letter_field = []
     bigram_field = []
+    quadgram_field = []
     letter_field_letters = []
     bigram_field_bigrams = []
+    quadgram_field_quadgrams = []
 
     def __init__(self, base_word, compare_word):
         self.template = base_word
@@ -36,7 +36,8 @@ class CombinedModel:
         self.sigma = 0.48+0.24*len(compare_word)
         self.init_base_field(self.sigma)
         self.sigma = 0.48+0.24*len(compare_word)
-        self.init_bigram_field(max(len(base_word), len(compare_word)))
+        self.init_bigram_field(self.sigma)
+        self.init_quadgram_field()
         self.similarity_score = \
             self.calculate_similarity(base_word, compare_word)
 
@@ -73,6 +74,26 @@ class CombinedModel:
             bigrams.append(bigram)
         self.bigram_field_bigrams = bigrams
 
+    def init_quadgram_field(self, sigma=1.25):
+        self.quadgram_field = []
+        quadgrams = []
+        max_len = len(self.template)
+        for pos in range(max_len - 3):
+            bigrams = [self.find_bigram_for_quadgram(p+pos) for p in range(3)]
+            new_quad = QuadrigramNeuron(bigrams, max_len)
+            if new_quad.identity in quadgrams:
+                continue
+            self.quadgram_field.append(new_quad)
+            quadgrams.append(new_quad.identity)
+        self.quadgram_field_quadgrams = quadgrams
+        print quadgrams
+
+    def find_bigram_for_quadgram(self, position):
+        f_letter = self.template[position]
+        s_letter = self.template[position + 1]
+        bigram = f_letter + s_letter
+        return self.find_bigram_neuron(bigram)
+
     def find_letter_neuron(self, letter):
         index = self.letter_field_letters.index(letter)
         return self.letter_field[index]
@@ -86,11 +107,11 @@ class CombinedModel:
         returns the similarity-value.
         """
         # Calculate the similarity between template and compare.
-        similarity = self.calc_bigram_similarity(self.compare)
+        similarity = self.calc_quadgram_activation(self.compare)
 
         # Calculate the maximum similarity.
         self.reset_fields()
-        max_similarity = self.calc_bigram_similarity(self.template)
+        max_similarity = self.calc_quadgram_activation(self.template)
 
         # Return the normalized similarity.
         if max_similarity == 0:
@@ -103,8 +124,12 @@ class CombinedModel:
         for neuron in self.bigram_field:
             neuron.reset()
 
-    def calc_bigram_similarity(self, input_):
-        similarity = 0.0
+    def calc_bigram_activation(self, input_):
+        """
+        Calculate the activation of the neurons that are linked to the
+        template.
+        """
+        activation = 0.0
 
         # activate neurons
         for position, letter in enumerate(input_):
@@ -112,17 +137,38 @@ class CombinedModel:
                 letter_neuron = self.find_letter_neuron(letter)
                 letter_neuron.activate(position)
 
+        for n in range(1, len(self.template)-1):
+            activation = activation + self.calc_n_removed_bigram_activation(n)
+        return activation
+
+    def calc_n_removed_bigram_activation(self, n):
         # calculate bigrams
-        for position, fletter in enumerate(self.template[:-1]):
-            sletter = self.template[position + 1]
-            bigram = fletter+sletter
-            similarity = similarity + \
-                self.find_bigram_neuron(bigram).activation(position)
-        return similarity / (len(self.template) - 1)  # sim / #bigrams
+        activation = 0.0
+        for position, f_letter in enumerate(self.template[:-1*n]):
+            s_letter = self.template[position + n]
+            bigram = f_letter+s_letter
+            bigram_neuron = self.find_bigram_neuron(bigram)
+            if bigram_neuron is not None:
+                activation = activation + bigram_neuron.activation(position)
+        return activation / (len(self.template) - n)  # activation / #bigrams
 
     def find_bigram_neuron(self, bigram):
-        index = self.bigram_field_bigrams.index(bigram)
-        return self.bigram_field[index]
+        if bigram in self.bigram_field_bigrams:
+            index = self.bigram_field_bigrams.index(bigram)
+            return self.bigram_field[index]
+        return None
+
+    def calc_quadgram_activation(self, input_):
+        activation = 0.0
+
+        # activate neurons
+        for position, letter in enumerate(input_):
+            if letter in self.letter_field_letters:
+                letter_neuron = self.find_letter_neuron(letter)
+                letter_neuron.activate(position)
+
+        activation = sum([node.activation() for node in self.quadgram_field])
+        return activation
 
 
 class LetterNeuron:
@@ -134,6 +180,7 @@ class LetterNeuron:
     identity = ""
     position = None
     sigma = None
+    endletter = False
     deactivation = []
 
     def __init__(self, id_, sigma=1.25):
@@ -209,6 +256,32 @@ class BigramNeuron:
         self.position = []
 
 
+class QuadrigramNeuron:
+
+    nodes = []
+    identity = ""
+    sigma = None
+    templatelen = None
+
+    def __init__(self, nodes, templatelen, sigma=1.25):
+        self.identity = self.get_id(nodes)
+        self.nodes = nodes
+        self.sigma = sigma
+        self.templatelen = templatelen
+
+    def get_id(self, nodes):
+        _id = "".join([n.identity[0] for n in nodes])
+        _id = _id + nodes[-1].identity[1]
+        return _id
+
+    def activation(self):
+        activation = 0.0
+        for position in range(self.templatelen-3):
+            for shift in range(len(self.nodes)):
+                activation += self.nodes[shift].activation(position+shift)
+        return activation
+
+
 def test():
     template = ["testen", "12345", "1245", "123345", "123d45", "12dd5",
                 "1d345",
@@ -221,7 +294,7 @@ def test():
                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
                "1232567", "1232567", ]
     for i in range(1, 21):
-        cm = CombinedModel(template[i], compare[i])
+        cm = CombinedModel(compare[i], template[i])
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
             'match equals:', str(cm.match())
@@ -229,13 +302,21 @@ def test():
 
 def test2():
     LN1 = LetterNeuron("a")
-    LN1.activate(4)
-    LN1.activate(2)
+    LN1.activate(1)
+    LN1.activate(1)
     LN2 = LetterNeuron("b")
-    LN2.activate(4)
-    LN2.activate(3)
-    BN = BigramNeuron(2, LN1, LN2)
-    for i in range(6):
-        print BN.activation(i)
+    LN2.activate(0)
+    LN2.activate(0)
+    LN3 = LetterNeuron("c")
+    LN3.activate(3)
+    LN3.activate(3)
+    LN4 = LetterNeuron("d")
+    LN4.activate(2)
+    LN4.activate(2)
+    BN1 = BigramNeuron(LN1, LN2)
+    BN2 = BigramNeuron(LN2, LN3)
+    BN3 = BigramNeuron(LN3, LN4)
+    QN = QuadrigramNeuron([BN1, BN2, BN3], 4)
+    print QN.identity, QN.activation()
 
 test()
