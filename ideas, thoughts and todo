@@ -13,3 +13,23 @@ TODO: Make the results similar
 
 Reason why spatial coding fails 19=20: in 19 the resphase aligns 4 of 6
 letters, in 20 only 3 of 6.
+
+Spatial Coding is incorrect because
+- ELM is not biological plausible and does wrongly say the last letter is as important as the first letter.
+    - First letter could be more important because of competition in letter-
+       position
+- The weird Resphase part that takes the "most-matching" phase
+
+- Spatial coding treats same letters in a word the same as diffent letters in a
+   word,
+    - This seems kind of counterintuitive. Since at least same letter insertion
+       does have a different effect from different letter insertion.
+- Other things because of localist views?
+
+dekken vs dekren en dekden vs dekren? oftewel: 123d45 vs 123356 en 123456
+vooral zichtbaar bij ideeeen vs ideeen en ideeekn vs ideeen
+statig vs stalig en statig vs stotig? oftewel: 123256 vs 123d56 en 12d256
+
+todo: search more superset priming
+todo: find out repeated adjacent letter constraint i.e. 123345: 123d45 vs 1233d5
+Fischer-Baum, S. (2016). The independence of letter identity and letter doubling in reading. Psychonomic Bulletin & Review, 1-6. -> Something?

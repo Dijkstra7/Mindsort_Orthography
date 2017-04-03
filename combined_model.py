@@ -35,7 +35,7 @@ class CombinedModel:
         self.compare = compare_word
         self.sigma = 0.48+0.24*len(compare_word)
         self.init_base_field(self.sigma)
-        self.sigma = 0.48+0.24*len(compare_word)
+        self.sigma = (0.48+0.24*len(compare_word))/4
         self.init_bigram_field(self.sigma)
         self.init_quadgram_field()
         self.similarity_score = \
@@ -86,7 +86,7 @@ class CombinedModel:
             self.quadgram_field.append(new_quad)
             quadgrams.append(new_quad.identity)
         self.quadgram_field_quadgrams = quadgrams
-        print quadgrams
+        # print quadgrams
 
     def find_bigram_for_quadgram(self, position):
         f_letter = self.template[position]
@@ -287,13 +287,23 @@ def test():
                 "1d345",
                 "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                 "21436587", "125436", "13d45", "12345", "34567", "13457",
-                "123267", "123567"]
+                "123267", "123567", "12dd56", "1d3d56", "ideeen", "ideeen"]
     compare = ["getest", "12345", "12345", "12345", "12345", "12345",
                "12345",
                "123456", "123456", "12345", "12345", "12345", "12345",
                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
-               "1232567", "1232567", ]
-    for i in range(1, 21):
+               "1232567", "1232567", "123456", "123456", "ideeeen",
+               "ideeekn"]
+    template_new_study = ["123456", "12345", "123456d", "123465", "124356",
+                          "12456", "12345d", "d23456", "213456", "123d456",
+                          "d123456", "123", "123dd456", "1256", "12d456",
+                          "13d456", "143256", "123de456", "214365", "12de56",
+                          "321654", "153426", "415263", "456123", "design",
+                          "165432", "1bcde6", "abcdef"]
+    template.extend(template_new_study)
+    for i in range(28):
+        compare.append("123456")
+    for i in range(23, 25):
         cm = CombinedModel(compare[i], template[i])
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
