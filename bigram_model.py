@@ -12,15 +12,17 @@ TODO: Better comments
 
 class BigramModel:
 
-    weight_bigrams = [1.0, 0.8, 0.4]
+    weight_bigrams = [1.0, 0.8, 0.2]
     template = ""
     compare = ""
     similarity_score = 0
     template_bigrams = []
+    activated_bigrams = []
 
     def __init__(self, template, compare):
         self.template = template
         self.compare = compare
+        self.activated_bigrams = []
         self.make_template_bigrams()
         self.calculate_similarity_score()
 
@@ -30,10 +32,12 @@ class BigramModel:
 
         i_letter_sep+1 has a plus 1 because the next letter is also already 1
         position removed when there is a zero-letter seperation."""
+        self.template_bigrams = []
         temp = self.template
         for i_letter_sep in range(3):
             self.template_bigrams.append(self.make_bigrams(i_letter_sep+1,
                                                            temp))
+        # print self.template_bigrams
 
     def make_bigrams(self, sep, temp):
         """ make the bigrams seperated by sep - 1 letters (-1, see comment in
@@ -67,10 +71,13 @@ class BigramModel:
         made with the matching bigrams in the templateword.
         """
         match = 0.0
+        self.activated_bigrams = []
         for i in range(3):
             w = self.weight_bigrams[i]
-            match = match + \
+            single_match = \
                 w * self.sum_matching(self.make_bigrams(i+1, comp_word))
+            single_match = single_match / (5.0-i)   # Normalize for length of
+            match = match + single_match            # template
         return match
 
     def sum_matching(self, bigrams):
@@ -82,12 +89,25 @@ class BigramModel:
         for bigram in bigrams:
             for i in range(3):
                 if bigram in self.template_bigrams[i]:
-                    score = score + self.weight_bigrams[i]
+                    if bigram not in self.activated_bigrams:
+                        score = score + self.weight_bigrams[i]
+                        self.activated_bigrams.append(bigram)
         return score
 
 
 def test():
-    bm = BigramModel("12345", "12d45")
-    print bm.similarity_score
+    compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+               "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+               "21436587", "125436", "13d45", "12345", "34567", "13457",
+               "123267", "123567", "BAAR", "BAR", "BAR", "BAR"]
+    template = ["12345", "12345", "12345", "12345", "12345", "12345",
+                "123456", "123456", "12345", "12345", "12345", "12345",
+                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+                "1232567", "1232567", "BEER", "BEER", "BOER", "BAAR"]
+    for i in range(20):
+        bm = BigramModel(template[i], compare[i])
+        # sm.print_banks()
+        print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
+            'match equals:', str(bm.similarity_score)
 
 test()

@@ -25,8 +25,9 @@ def closer_to_0(current, contender):
     return False
 
 
-class SpatialModel:
-    """ The model that implements Spatial Coding.
+class SpatialModelExtended:
+    """ The extended model that implements Spatial Coding as well as letter
+    doubling.
 
     In the spatial coding paper the author says that only the first 16
     equations are enough to represent the spatial coding model for comparing
@@ -44,6 +45,7 @@ class SpatialModel:
     base_word = 'spam'
     compare_word = 'eggs'
     ELM = True
+    double_weight = 1.0 / 5.0
 
     def __init__(self, base_word, compare_word, ELM=True):
         self.base_word = base_word
@@ -54,6 +56,7 @@ class SpatialModel:
         # Calculate the sigma and weight of the gaussians.
         sigma = self.calculate_sigma(len(compare_word))
         self.sigma = sigma
+        self.double_weight = 1.0 / self.sigma
         self.weight = 1.0/(len(base_word))
         if ELM:
             self.weight = 1.0/(len(base_word)+2)
@@ -70,7 +73,9 @@ class SpatialModel:
         # print "-----------create receivers-----------"
         for position, identity in enumerate(template):
             self.banks_of_receivers.append(Bank(identity, len(input_),
-                                                position, sigma))
+                                                position, sigma,
+                                                self.is_double(position,
+                                                               identity)))
 
         # Activate the receivers
         # print "-----------activate receivers---------"
@@ -99,6 +104,32 @@ class SpatialModel:
         for bank in range(start, stop, step):
             self.banks_of_receivers[bank].printself()
 
+    def is_double(self, position, letter):
+        """
+        Check if previous or next letter of the templateword is the same as the
+        current letter
+        """
+        double = False
+        if position > 0:                    # Else there is no previous letter
+            if self.base_word[position-1] == letter:
+                double = True
+        if position < len(self.base_word) - 1:  # Else there is no next letter
+            if self.base_word[position+1] == letter:
+                double = True
+        return double
+
+    def input_is_double(self):
+        """
+        Check if there is a double letter in the input
+        """
+        input_ = self.compare_word
+        old_letter = ''
+        for letter in input_:
+            if letter == old_letter:
+                return True
+            old_letter = letter
+        return False
+
     def calculate_sigma(self, length):
         """ equation 3 in spatial coding
 
@@ -116,8 +147,14 @@ class SpatialModel:
         """
         super_position_score = 0
         for bank in self.banks_of_receivers:
-            winning_receiver_score = self.weight*bank.receiver(position,
-                                                               time)
+            weight = self.weight
+            dw = self.double_weight
+            if self.input_is_double() and bank.double:
+                weight = weight * (1.0 - dw)
+                winning_receiver_score = weight*bank.receiver(position, time)
+                winning_receiver_score = winning_receiver_score + weight * dw
+            else:
+                winning_receiver_score = weight*bank.receiver(position, time)
             super_position_score = super_position_score + \
                 winning_receiver_score
         return super_position_score
@@ -169,8 +206,9 @@ class Bank:
     position = -1
     win_rec_pos = 0
     sigma = 0
+    double = False
 
-    def __init__(self, identity, n_receivers, position, sigma):
+    def __init__(self, identity, n_receivers, position, sigma, double):
         self.identity = identity
         receivers = []
         for pos_receiver in range(n_receivers):
@@ -178,6 +216,7 @@ class Bank:
         self.receivers = receivers
         self.position = position
         self.sigma = sigma
+        self.double = double
 
     def activate_receivers(self, id_input, pos_input, pos_self):
         if self.identity == id_input:
@@ -222,8 +261,10 @@ class Bank:
         print 'id: ', self.identity
         for id_, rec in enumerate(self.receivers):
             suffix = ''
+            if self.double is True:
+                suffix = ' (D)'
             if rec.winning is True:
-                suffix = ' <= winner'
+                suffix = suffix + ' <= winner'
             print str(id_+1)+" "+str(rec.delay)+suffix
 
 
@@ -311,23 +352,22 @@ def test():
     template = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
                 "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                 "21436587", "125436", "13d45", "12345", "34567", "13457",
-                "123267", "123567", "12dd56", "1ab2cd3", "1a2bcd3", "1abc2d3"]
-    compare = ["12345", "12345", "12345", "12345", "12345", "throne",
+                "123267", "123567", "BAAR", "BAER", "BAR", "BAAR"]
+    compare = ["12345", "12345", "12345", "12345", "12345", "12345",
                "123456", "123456", "12345", "12345", "12345", "12345",
                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
-               "1232567", "1232567", "123456", "123" , "123",
-               "tube"]
+               "1232567", "1232567", "BEER", "BEER", "BOER", "BOER"]
     template_new_study = ["123456", "12345", "123456d", "123465", "124356",
                           "12456", "12345d", "d23456", "213456", "123d456",
                           "d123456", "123", "123dd456", "1256", "12d456",
                           "13d456", "143256", "123de456", "214365", "12de56",
-                          "321654", "153426", "415263", "456123", "design",
-                          "165432", "1bcde6", "abcdef"]
+                          "321654", "153426", "415263", "456123", "BEER",
+                          "BEER", "BOER", "BOER"]
     template.extend(template_new_study)
     for i in range(28):
         compare.append("123456")
-    for i in range(20):
-        sm = SpatialModel(template[i], compare[i], True)
+    for i in range(0, 20):
+        sm = SpatialModelExtended(template[i], compare[i], True)
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
             'match equals:', str(sm.match())

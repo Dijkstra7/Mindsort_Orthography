@@ -156,12 +156,18 @@ class HoloRep:
 
 
 def test():
-    hm = HoloModel("12345", "1245")
-    print hm.similarity_score
-    tl = []
-    for i in range(3):
-        tl.append(HoloRep(True).vector)
-    print hm.hamming_similarity(tl[0], hm.chunk_rule(tl[0], np.ones(1000)))
-
+    compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+               "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+               "21436587", "125436", "13d45", "12345", "34567", "13457",
+               "123267", "123567", "BAAR", "BAR", "BAR", "BAAR", "boor"]
+    template = ["12345", "12345", "12345", "12345", "12345", "12345",
+                "123456", "123456", "12345", "12345", "12345", "12345",
+                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+                "1232567", "1232567", "BEER", "BEER", "BOER", "BOER", "buur"]
+    for i in range(20, 25):
+        hm = HoloModel(template[i], compare[i])
+        # sm.print_banks()
+        print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
+            'match equals:', str(hm.similarity_score)
 
 test()
