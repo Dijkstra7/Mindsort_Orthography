@@ -19,7 +19,7 @@ def closer_to_0(current, contender, resPhase):
         return False
     if current is None:
         return True
-    if abs(current)-abs(contender) > resPhase:
+    if abs(current - resPhase)-abs(contender - resPhase) >= 0:
         return True
     return False
 
@@ -241,7 +241,7 @@ class Bank:
                     break
                 if closer_to_0(self.receivers[self.win_rec_pos].delay,
                                other_rec.receivers[self.win_rec_pos].delay, resPhase):
-                    self.receivers[self.win_rec_pos].lost()
+                    self.receivers[self.win_rec_pos].lost_across()
                     self.win_rec_pos = None
                     self.winning_receiver_activation = 0
                     break
@@ -282,6 +282,10 @@ class Receiver:
 
     def lost(self):
         self.winning = False
+
+    def lost_across(self):
+        self.winning = False
+        self.delay = None
 
     def set_delay(self, difference):
         self.delay = self.position - difference
@@ -343,12 +347,12 @@ def test():
     compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                "21436587", "125436", "13d45", "12345", "34567", "13457",
-               "123267", "123567", "12dd45", "12de45", "12345345", "BAR"]
+               "123267", "123567", "12dd45", "12de45", "12345345", "1346", "1436"]
     template = ["12345", "12345", "12345", "12345", "12345", "12345",
                 "123456", "123456", "12345", "12345", "12345", "12345",
                 "12345678", "123456", "12345", "1234567", "1234567", "1234567",
-                "1232567", "1232567", "123345", "123345", "12345", "BAAR"]
-    for i in range(23):
+                "1232567", "1232567", "123345", "123345", "12345", "123456", "123456"]
+    for i in range(25):
         sm = SpatialModelExtended(template[i], compare[i], True)
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
