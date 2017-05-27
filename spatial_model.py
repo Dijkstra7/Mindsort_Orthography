@@ -19,7 +19,7 @@ def closer_to_0(current, contender, resPhase):
         return False
     if current is None:
         return True
-    if abs(current)-abs(contender) > resPhase:
+    if abs(current - resPhase)-abs(contender - resPhase) >= 0:
         return True
     return False
 
@@ -202,7 +202,7 @@ class Bank:
                     break
                 if closer_to_0(self.receivers[self.win_rec_pos].delay,
                                other_rec.receivers[self.win_rec_pos].delay, resPhase):
-                    self.receivers[self.win_rec_pos].lost()
+                    self.receivers[self.win_rec_pos].lost_across()
                     self.win_rec_pos = None
                     self.winning_receiver_activation = 0
                     break
@@ -242,6 +242,10 @@ class Receiver:
 
     def lost(self):
         self.winning = False
+
+    def lost_across(self):
+        self.winning = False
+        self.delay = None
 
     def set_delay(self, difference):
         self.delay = self.position - difference
