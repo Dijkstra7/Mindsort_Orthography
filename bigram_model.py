@@ -78,6 +78,7 @@ class BigramModel:
                 w * self.sum_matching(self.make_bigrams(i+1, comp_word))
             single_match = single_match / (5.0-i)   # Normalize for length of
             match = match + single_match            # template
+        match = match + self.add_edge_score(temp_word, comp_word)   
         return match
 
     def sum_matching(self, bigrams):
@@ -93,6 +94,14 @@ class BigramModel:
                         score = score + self.weight_bigrams[i]
                         self.activated_bigrams.append(bigram)
         return score
+
+    def add_edge_score(self, temp, comp):
+        """
+        Adding the score of the edge bigrams.
+        """
+        first_edge = 1.0 * (temp[0] == comp[0])
+        last_edge = 1.0 * (temp[-1] == comp[-1])
+        return first_edge + last_edge
 
 
 def test():
