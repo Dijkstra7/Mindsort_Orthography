@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Fri Feb 10 14:29:49 2017
-
 @author: rick
 """
 
@@ -15,29 +14,27 @@ def closest_to_0(current, contender):
     return current
 
 
-def closer_to_0(current, contender):
+def closer_to_0(current, contender, resPhase):
     if contender is None:
         return False
     if current is None:
         return True
-    if abs(current)-abs(contender) > 0:
+    if abs(current)-abs(contender) > resPhase:
         return True
     return False
 
 
 class SpatialModel:
     """ The model that implements Spatial Coding.
-
-    In the spatial coding paper the author says that only the first 16
+    In the spatial coding paper Davis says that only the first 16
     equations are enough to represent the spatial coding model for comparing
     two words with each other. So this will be the extent of this model for
     now.
-    TODO: implement SC
     """
     # Set up the parameters
     similarity_score = 0
-    sigma_0 = 0.48  # As stated in table 3 in spatial coding.
-    k_0 = 0.24      # As stated in table 3 in spatial coding.
+    sigma_0 = 0.25  # As stated in table 3 in spatial coding.
+    k_0 = 0.19      # As stated in table 3 in spatial coding.
     sigma = 0
     banks_of_receivers = []
     weight = 0
@@ -78,14 +75,18 @@ class SpatialModel:
             for bank_pos, bank in enumerate(self.banks_of_receivers):
                 bank.activate_receivers(identity, position, bank_pos)
 
-        # De-activate losing recievers in bank
+        # Find the resonating Phase
+        resPhase = self.find_resonating_phase(abs(len(template) - 
+                                                  len(input_)) + 1, 0)
+
+        # De-activate losing recievers in bank    
         for bank in self.banks_of_receivers:
-            bank.update_receivers()
+            bank.update_receivers(resPhase)
 
         # Eliminate losing receivers between banks
         for bank in self.banks_of_receivers:
             if bank.win_rec_pos is not None:
-                bank.cross_bank_winner(self.banks_of_receivers)
+                bank.cross_bank_winner(self.banks_of_receivers, resPhase)
 
     def print_banks(self, start=None, stop=None, step=1):
         """
@@ -101,7 +102,6 @@ class SpatialModel:
 
     def calculate_sigma(self, length):
         """ equation 3 in spatial coding
-
         the assumption that longer words wil have bigger sigma's is
         implemented here.
         """
@@ -109,10 +109,8 @@ class SpatialModel:
 
     def super_position(self, position, time):
         """ equation 10 in spatial coding.
-
         'The superposition function is found by summing across the receiver
         functions for each of the template’s receivers'
-
         """
         super_position_score = 0
         for bank in self.banks_of_receivers:
@@ -124,7 +122,6 @@ class SpatialModel:
 
     def match(self):
         """ equation 7 in spatial coding
-
         matching the base_word with the compare_word.
         """
         match_score = 0
@@ -139,7 +136,7 @@ class SpatialModel:
     def find_resonating_phase(self, max_dist, time):
         """
         The resonating phase corresponds to the value of the signal-weight
-         difference where the superposition function is at its peak
+        difference where the superposition function is at its peak
         """
         min_dist = -1*max_dist
         best_pos = (min_dist, self.super_position(min_dist, 0))
@@ -183,11 +180,11 @@ class Bank:
         if self.identity == id_input:
             self.receivers[pos_input].set_delay(pos_self)
 
-    def update_receivers(self):
+    def update_receivers(self, resPhase):
         win_id = 0
         self.receivers[0].won()
         for id_r, r in enumerate(self.receivers):
-            if closer_to_0(self.receivers[win_id].delay, r.delay):
+            if closer_to_0(self.receivers[win_id].delay, r.delay, resPhase):
                 self.receivers[win_id].lost()
                 self.win_rec_pos = id_r
                 self.winning_clone_activation = \
@@ -195,7 +192,7 @@ class Bank:
                 win_id = id_r
                 self.receivers[win_id].won()
 
-    def cross_bank_winner(self, bank):
+    def cross_bank_winner(self, bank, resPhase):
         """ De-activates the reeiverbank if there is another receiver with
         less delay.
         """
@@ -204,7 +201,7 @@ class Bank:
                 if self.win_rec_pos >= len(other_rec.receivers):
                     break
                 if closer_to_0(self.receivers[self.win_rec_pos].delay,
-                               other_rec.receivers[self.win_rec_pos].delay):
+                               other_rec.receivers[self.win_rec_pos].delay, resPhase):
                     self.receivers[self.win_rec_pos].lost()
                     self.win_rec_pos = None
                     self.winning_receiver_activation = 0
@@ -213,10 +210,12 @@ class Bank:
     def receiver(self, letter_position, time):
         """ Return the receiver value for the winning receiver.
         """
-        if self.win_rec_pos is None:
-            return 0
-        return self.receivers[self.win_rec_pos].receiver(letter_position,
-                                                         time)
+        highest_score = 0
+        for receiver in self.receivers:
+            highest_score = max(highest_score, 
+                                receiver.receiver(letter_position, time))
+            
+        return highest_score
 
     def printself(self):
         print 'id: ', self.identity
@@ -249,11 +248,9 @@ class Receiver:
 
     def receiver(self, letter_position, time):
         """ equation 9 in spatial coding.
-
         self equation calculates the activation of a receiver in a bank on a
         channel.
         The bank is the expected letter position.
-
         Not sure if identity or channel has to be implemented. in the SC
         paper
         it stands for the identity of the i'th word.
@@ -263,13 +260,11 @@ class Receiver:
 
     def signal(self, letter_position, time):
         """ Equation 4 in spatial coding
-
         The signal function varies as a function of position, where the
         central tendency of the function represents the veridical letter
         position (posj), and the width of the function reflects the degree
         of letter position uncertainty.
         The signal function in Equation 4 also varies over time (t).
-
         Because the second part of this equation is equal to the spatial
         equation, I changed it here.
         """
@@ -278,17 +273,15 @@ class Receiver:
 
     def activation(self, position, time):
         """ Calculate the activation level of a clone at a time.
-
         If there is a winning clone, the activation given for that clone is 1
         else there is no clone in this bank firing and the activation is 0
         """
         if self.winning is True:
             return 1
-        return 0
+        return 1
 
     def spatial(self, letter_pos):
         """ equation 1 in spatial coding
-
         letter_pos indexes the letters within the spatial code and goal_pos
         is the (veridical) serial position of the letter within the input
         stimulus.
@@ -300,7 +293,6 @@ class Receiver:
 
     def calculate_delay(self, letter_pos):
         """ the delay implemented by the SC model
-
         The value of delayri corresponds to the expected ordinal position of
         the corresponding letter within the template.
         """
@@ -308,25 +300,15 @@ class Receiver:
 
 
 def test():
-    template = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
-                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
-                "21436587", "125436", "13d45", "12345", "34567", "13457",
-                "123267", "123567", "12dd56", "1ab2cd3", "1a2bcd3", "1abc2d3"]
-    compare = ["12345", "12345", "12345", "12345", "12345", "throne",
-               "123456", "123456", "12345", "12345", "12345", "12345",
-               "12345678", "123456", "12345", "1234567", "1234567", "1234567",
-               "1232567", "1232567", "123456", "123" , "123",
-               "tube"]
-    template_new_study = ["123456", "12345", "123456d", "123465", "124356",
-                          "12456", "12345d", "d23456", "213456", "123d456",
-                          "d123456", "123", "123dd456", "1256", "12d456",
-                          "13d456", "143256", "123de456", "214365", "12de56",
-                          "321654", "153426", "415263", "456123", "design",
-                          "165432", "1bcde6", "abcdef"]
-    template.extend(template_new_study)
-    for i in range(28):
-        compare.append("123456")
-    for i in range(20):
+    compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+               "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+               "21436587", "125436", "13d45", "12345", "34567", "13457",
+               "123267", "123567", "12dd45", "12de45", "12345345", "BAR"]
+    template = ["12345", "12345", "12345", "12345", "12345", "12345",
+                "123456", "123456", "12345", "12345", "12345", "12345",
+                "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+                "1232567", "1232567", "123345", "123345", "12345", "BAAR"]
+    for i in range(23):
         sm = SpatialModel(template[i], compare[i], True)
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
