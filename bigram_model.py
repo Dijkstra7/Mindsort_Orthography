@@ -12,7 +12,7 @@ TODO: Better comments
 
 class BigramModel:
 
-    weight_bigrams = [1.0, 0.8, 0.2]
+    weight_bigrams = [1.0, 0.8, 0.4] #weights from whitney (2008) or even (2012)
     template = ""
     compare = ""
     similarity_score = 0
