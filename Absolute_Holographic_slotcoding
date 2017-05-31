@@ -9,6 +9,7 @@ class AbsolutHolographicSlotcoding:
     num_let = 0
     num_cases = 0
     set_of_letters = []
+    adjusted = True
     
     def __init__(self, trgt, prm):
         self.target = trgt
@@ -20,6 +21,8 @@ class AbsolutHolographicSlotcoding:
         self.set_of_letters = list(set(trgt+prm))
         self.hamming = self.compare(self.make_truth(trgt), self.make_truth(prm))
         self.similarity = abs(self.hamming)
+        if self.adjusted is True:
+            self.similarity = abs(1.0 - 2.0 * self.similarity)
 
     def make_truth_table(self):
         layer = self.num_pos+self.num_let
