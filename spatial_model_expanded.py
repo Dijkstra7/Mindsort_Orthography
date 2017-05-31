@@ -1,116 +1,361 @@
+# -*- coding: utf-8 -*-
 """
-Created on Tue Feb 07 14:00:47 2017
+Created on Fri Feb 10 14:29:49 2017
 @author: rick
-Python bigrams model
-TODO: Better comments
 """
 
+# Imports
+import math
 
-class BigramModel:
 
-    weight_bigrams = [1.0, 0.8, 0.4] #weights from whitney (2008) or even (2012)
-    template = ""
-    compare = ""
+def closest_to_0(current, contender):
+    if abs(current)-abs(contender) > 0:
+        return contender
+    return current
+
+
+def closer_to_0(current, contender, resPhase):
+    if contender is None:
+        return False
+    if current is None:
+        return True
+    if abs(current - resPhase)-abs(contender - resPhase) >= 0:
+        return True
+    return False
+
+class SpatialModelExtended:
+    """ The extended model that implements Spatial Coding as well as letter
+    doubling.
+    In the spatial coding paper the author says that only the first 16
+    equations are enough to represent the spatial coding model for comparing
+    two words with each other. So this will be the extent of this model for
+    now.
+    TODO: implement SC
+    """
+    # Set up the parameters
     similarity_score = 0
-    template_bigrams = []
-    activated_bigrams = []
+    sigma_0 = 0.25  # As stated in table 3 in spatial coding.
+    k_0 = 0.19      # As stated in table 3 in spatial coding.
+    sigma = 0
+    banks_of_receivers = []
+    weight = 0
+    base_word = 'spam'
+    compare_word = 'eggs'
+    ELM = True
+    double_weight = 1.0 / 5.0
 
-    def __init__(self, template, compare):
-        self.template = template
-        self.compare = compare
-        self.activated_bigrams = []
-        self.make_template_bigrams()
-        self.calculate_similarity_score()
+    def __init__(self, base_word, compare_word, ELM=True):
+        self.base_word = base_word
+        self.compare_word = compare_word
+        self.banks_of_receivers = []
+        self.ELM = ELM
 
-    def make_template_bigrams(self):
-        """ For each level of seperation between the bigrams, make a new list of
-        those bigrams.
-        i_letter_sep+1 has a plus 1 because the next letter is also already 1
-        position removed when there is a zero-letter seperation."""
-        self.template_bigrams = []
-        temp = self.template
-        for i_letter_sep in range(3):
-            self.template_bigrams.append(self.make_bigrams(i_letter_sep+1,
-                                                           temp))
-        # print self.template_bigrams
+        # Calculate the sigma and weight of the gaussians.
+        sigma = self.calculate_sigma(len(compare_word))
+        self.sigma = sigma
+        self.double_weight = 1.0 / self.sigma
+        self.weight = 1.0/(len(base_word))
+        if ELM:
+            self.weight = 1.0/(len(base_word)+2)
+        # Set up the receivers
+        self.initialise_receivers(base_word, compare_word, sigma)
 
-    def make_bigrams(self, sep, temp):
-        """ make the bigrams seperated by sep - 1 letters (-1, see comment in
-        make_template_bigrams).
+    def initialise_receivers(self, template, input_, sigma):
         """
-        bigrams = []
-        for start in range(len(temp)-(sep)):
-            first = temp[start]  # first letter of bigram
-            last = temp[start+sep]  # last letter of bigram
-            bigrams.append(first+last)  # The one-letter seperated bigrams
-        return bigrams
+        - Initialise the receivers based on the template
+        - Activate the receivers
+        - Deactivate the not-winning receivers
+        """
+        # Create the receivers.
+        # print "-----------create receivers-----------"
+        for position, identity in enumerate(template):
+            self.banks_of_receivers.append(Bank(identity, len(input_),
+                                                position, sigma,
+                                                self.is_double(position,
+                                                               identity)))
 
-    def calculate_similarity_score(self):
-        """
-        similarity_score is calculated by taking the maximum possible score
-        and dividing it by the activationscore.
-        """
-        full_score = self.calculate_bigram_match(self.template, self.template)
-        score = self.calculate_bigram_match(self.template, self.compare)
-        self.similarity_score = score/full_score
+        # Activate the receivers
+        # print "-----------activate receivers---------"
+        for position, identity in enumerate(input_):
+            for bank_pos, bank in enumerate(self.banks_of_receivers):
+                bank.activate_receivers(identity, position, bank_pos)
 
-    def calculate_bigram_match(self, temp_word, comp_word):
-        """
-        bigram_match is the activation score of a word on the template word:
-        "each OBs activation is multiplied by the corresponding weight, and
-        lexical input is the sum of these products."
-        The maximum match is where the temp_word is the same as the comp_word.
-        for each x-letter seperated bigram of the comp_word, the dotproduct is
-        made with the matching bigrams in the templateword.
-        """
-        match = 0.0
-        self.activated_bigrams = []
-        for i in range(3):
-            w = self.weight_bigrams[i]
-            single_match = \
-                w * self.sum_matching(self.make_bigrams(i+1, comp_word))
-            single_match = single_match / (5.0-i)   # Normalize for length of
-            match = match + single_match            # template
-        match = match + self.add_edge_score(temp_word, comp_word)   
-        normalised = 20.0/(20.0+len(comp_word))
-        return normalised*match
+        # Find the resonating Phase
+        resPhase = self.find_resonating_phase(abs(len(template) - 
+                                                  len(input_)) + 1, 0)
 
-    def sum_matching(self, bigrams):
+        # De-activate losing recievers in bank    
+        for bank in self.banks_of_receivers:
+            bank.update_receivers(resPhase)
+
+        # Eliminate losing receivers between banks
+        for bank in self.banks_of_receivers:
+            if bank.win_rec_pos is not None:
+                bank.cross_bank_winner(self.banks_of_receivers, resPhase)
+
+    def print_banks(self, start=None, stop=None, step=1):
         """
-        For a list of bigrams (of the comparing word) the score of activated
-        matches is added.
+        For testing purposes.
         """
-        score = 0.0
-        for bigram in bigrams:
-            for i in range(3):
-                if bigram in self.template_bigrams[i]:
-                    if bigram not in self.activated_bigrams:
-                        score = score + self.weight_bigrams[i]
-                        self.activated_bigrams.append(bigram)
+        if start is None:
+            start = 0
+            stop = len(self.banks_of_receivers)
+        if stop is None:
+            stop = start+1
+        for bank in range(start, stop, step):
+            self.banks_of_receivers[bank].printself()
+
+    def is_double(self, position, letter):
+        """
+        Check if previous or next letter of the templateword is the same as the
+        current letter
+        """
+        double = False
+        if position > 0:                    # Else there is no previous letter
+            if self.base_word[position-1] == letter:
+                double = True
+        if position < len(self.base_word) - 1:  # Else there is no next letter
+            if self.base_word[position+1] == letter:
+                double = True
+        return double
+
+    def input_is_double(self):
+        """
+        Check if there is a double letter in the input
+        """
+        input_ = self.compare_word
+        old_letter = ''
+        for letter in input_:
+            if letter == old_letter:
+                return True
+            old_letter = letter
+        return False
+
+    def calculate_sigma(self, length):
+        """ equation 3 in spatial coding
+        the assumption that longer words wil have bigger sigma's is
+        implemented here.
+        """
+        return self.sigma_0 + self.k_0*length
+
+    def super_position(self, position, time):
+        """ equation 10 in spatial coding.
+        'The superposition function is found by summing across the receiver
+        functions for each of the template’s receivers'
+        """
+        super_position_score = 0
+        for bank in self.banks_of_receivers:
+            weight = self.weight
+            dw = self.double_weight
+            if self.input_is_double() and bank.double:
+                weight = weight * (1.0 - dw)
+                winning_receiver_score = weight*bank.receiver(position, time)
+                winning_receiver_score = winning_receiver_score + weight * dw
+            else:
+                winning_receiver_score = weight*bank.receiver(position, time)
+            super_position_score = super_position_score + \
+                winning_receiver_score
+        return super_position_score
+
+    def match(self):
+        """ equation 7 in spatial coding
+        matching the base_word with the compare_word.
+        """
+        match_score = 0
+        time = 0
+        base_length = len(self.base_word)
+        compare_length = len(self.compare_word)
+        res_phase = self.find_resonating_phase(abs(base_length -
+                                                   compare_length) + 1, time)
+        match_score = self.super_position(res_phase, time)+self.ELM_score()
+        return match_score
+
+    def find_resonating_phase(self, max_dist, time):
+        """
+        The resonating phase corresponds to the value of the signal-weight
+         difference where the superposition function is at its peak
+        """
+        min_dist = -1*max_dist
+        best_pos = (min_dist, self.super_position(min_dist, 0))
+        for pos in range(min_dist, max_dist):
+            score = self.super_position(pos, 0)
+            if score > best_pos[1]:
+                best_pos = (pos, score)
+        return best_pos[0]
+
+    def ELM_score(self):
+        if self.ELM is False:
+            return 0
+        score = 0
+        if self.base_word[0] == self.compare_word[0]:
+            score = score + self.weight
+        if self.base_word[-1] == self.compare_word[-1]:
+            score = score + self.weight
         return score
 
-    def add_edge_score(self, temp, comp):
+
+class Bank:
+    """
+    the structure of a receiver
+    """
+    identity = 'a'
+    receivers = []
+    position = -1
+    win_rec_pos = 0
+    sigma = 0
+    double = False
+
+    def __init__(self, identity, n_receivers, position, sigma, double):
+        self.identity = identity
+        receivers = []
+        for pos_receiver in range(n_receivers):
+            receivers.append(Receiver(pos_receiver, False, sigma))
+        self.receivers = receivers
+        self.position = position
+        self.sigma = sigma
+        self.double = double
+
+    def activate_receivers(self, id_input, pos_input, pos_self):
+        if self.identity == id_input:
+            self.receivers[pos_input].set_delay(pos_self)
+
+    def update_receivers(self, resPhase):
+        win_id = 0
+        self.receivers[0].won()
+        for id_r, r in enumerate(self.receivers):
+            if closer_to_0(self.receivers[win_id].delay, r.delay, resPhase):
+                self.receivers[win_id].lost()
+                self.win_rec_pos = id_r
+                self.winning_clone_activation = \
+                    self.receiver(self.position, 0)
+                win_id = id_r
+                self.receivers[win_id].won()
+
+    def cross_bank_winner(self, bank, resPhase):
+        """ De-activates the reeiverbank if there is another receiver with
+        less delay.
         """
-        Adding the score of the edge bigrams.
+        for other_rec in bank:
+            if self.identity == other_rec.identity:
+                if self.win_rec_pos >= len(other_rec.receivers):
+                    break
+                if closer_to_0(self.receivers[self.win_rec_pos].delay,
+                               other_rec.receivers[self.win_rec_pos].delay, resPhase):
+                    self.receivers[self.win_rec_pos].lost_across()
+                    self.win_rec_pos = None
+                    self.winning_receiver_activation = 0
+                    break
+
+    def receiver(self, letter_position, time):
+        """ Return the receiver value for the winning receiver.
         """
-        first_edge = 1.0 * (temp[0] == comp[0])
-        last_edge = 1.0 * (temp[-1] == comp[-1])
-        return first_edge + last_edge
+        highest_score = 0
+        for receiver in self.receivers:
+            highest_score = max(highest_score, 
+                                receiver.receiver(letter_position, time))
+        return highest_score
+
+    def printself(self):
+        print 'id: ', self.identity
+        for id_, rec in enumerate(self.receivers):
+            suffix = ''
+            if self.double is True:
+                suffix = ' (D)'
+            if rec.winning is True:
+                suffix = suffix + ' <= winner'
+            print str(id_+1)+" "+str(rec.delay)+suffix
+
+
+class Receiver:
+    winning = False
+    position = None
+    delay = None
+    sigma = 0
+
+    def __init__(self, position, winning, sigma):
+        self.winning = winning
+        self.position = position
+        self.sigma = sigma
+
+    def won(self):
+        self.winning = True
+
+    def lost(self):
+        self.winning = False
+
+    def lost_across(self):
+        self.winning = False
+        self.delay = None
+
+    def set_delay(self, difference):
+        self.delay = self.position - difference
+
+    def receiver(self, letter_position, time):
+        """ equation 9 in spatial coding.
+        self equation calculates the activation of a receiver in a bank on a
+        channel.
+        The bank is the expected letter position.
+        Not sure if identity or channel has to be implemented. in the SC
+        paper
+        it stands for the identity of the i'th word.
+        """
+        return self.signal(letter_position,
+                           time)  # - self.calculate_delay(letter_position)
+
+    def signal(self, letter_position, time):
+        """ Equation 4 in spatial coding
+        The signal function varies as a function of position, where the
+        central tendency of the function represents the veridical letter
+        position (posj), and the width of the function reflects the degree
+        of letter position uncertainty.
+        The signal function in Equation 4 also varies over time (t).
+        Because the second part of this equation is equal to the spatial
+        equation, I changed it here.
+        """
+        return self.activation(letter_position,
+                               time)*self.spatial(letter_position)
+
+    def activation(self, position, time):
+        """ Calculate the activation level of a clone at a time.
+        If there is a winning clone, the activation given for that clone is 1
+        else there is no clone in this bank firing and the activation is 0
+        """
+        if self.winning is True:
+            return 1
+        return 1
+
+    def spatial(self, letter_pos):
+        """ equation 1 in spatial coding
+        letter_pos indexes the letters within the spatial code and goal_pos
+        is the (veridical) serial position of the letter within the input
+        stimulus.
+        """
+        if self.delay is None:             # Ugly hack
+            return 0
+        power = (letter_pos-self.delay)/self.sigma
+        return math.exp(-1*power**2)
+
+    def calculate_delay(self, letter_pos):
+        """ the delay implemented by the SC model
+        The value of delayri corresponds to the expected ordinal position of
+        the corresponding letter within the template.
+        """
+        return self.position-letter_pos
 
 
 def test():
     compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                "21436587", "125436", "13d45", "12345", "34567", "13457",
-               "123267", "123567", "12dd45", "12de45", "1234525", "1346", "1436"]
+               "123267", "123567", "12dd45", "12de45", "12345345", "1346", "1436"]
     template = ["12345", "12345", "12345", "12345", "12345", "12345",
                 "123456", "123456", "12345", "12345", "12345", "12345",
                 "12345678", "123456", "12345", "1234567", "1234567", "1234567",
                 "1232567", "1232567", "123345", "123345", "12345", "123456", "123456"]
     for i in range(25):
-        bm = BigramModel(template[i], compare[i])
+        sm = SpatialModelExtended(template[i], compare[i], True)
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
-            'match equals:', str(bm.similarity_score)
+            'match equals:', str(sm.match())
 
 test()
