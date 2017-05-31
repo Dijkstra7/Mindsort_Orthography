@@ -1,0 +1,86 @@
+"""
+Absolute values on Holographic Slotcoding
+"""
+class AbsolutHolographicSlotcoding:
+    
+    target = ""
+    prime = ""
+    num_pos = 0
+    num_let = 0
+    num_cases = 0
+    set_of_letters = []
+    
+    def __init__(self, trgt, prm):
+        self.target = trgt
+        self.prime = prm
+        self.num_pos = max(len(trgt), len(prm))
+        self.num_let = len(set(self.target+self.prime))
+        self.num_cases = 2**(self.num_let+self.num_pos)
+        self.make_truth_table()
+        self.set_of_letters = list(set(trgt+prm))
+        self.hamming = self.compare(self.make_truth(trgt), self.make_truth(prm))
+        self.similarity = abs(self.hamming)
+
+    def make_truth_table(self):
+        layer = self.num_pos+self.num_let
+        self.truth_table = []
+        for i in range(layer):
+            module = 2**i
+            value = 1
+            column = []
+            for j in range(self.num_cases):
+                if j%module == 0:
+                    value = 1 - value
+                column.append(value)
+            self.truth_table.append(column)
+    
+    def make_truth(self, word):
+        bind_truth_table = []
+        for position, letter in enumerate(word):
+            letter_position = self.find_letter_position(letter)
+            bind_truth_table.append(self.bind(self.truth_table[position], self.truth_table[letter_position]))
+        return self.chunk(bind_truth_table)
+    
+    def find_letter_position(self, let):
+        return self.set_of_letters.index(let) + self.num_pos
+
+    def bind(self, v1, v2):
+        bound = []
+        for i,j in zip(v1, v2):
+            bound.append(1.0-abs(i-j))
+        return bound
+
+    def chunk(self, vectors):
+        chunked = []
+        for i in range(len(vectors[0])):
+            summed = 0
+            for j in vectors:
+                summed = summed + 2*j[i] - 1
+            if summed > 0:
+                chunked.append(1)
+            if summed < 0:
+                chunked.append(0)
+            if summed == 0:
+                chunked.append(0.5)
+        return chunked
+
+    def compare(self, v1, v2):
+        total = 0.0
+        for i in range(len(v1)):
+                total = total + 1.0 - abs(v1[i]-v2[i])
+        return total / self.num_cases
+
+
+c = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+     "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
+     "21436587", "125436", "13d45", "12345", "34567", "13457",
+     "123267", "123567", "12dd45", "12de45", "1234525", "1346", "1436"]
+
+t = ["12345", "12345", "12345", "12345", "12345", "12345",
+     "123456", "123456", "12345", "12345", "12345", "12345",
+     "12345678", "123456", "12345", "1234567", "1234567", "1234567",
+     "1232567", "1232567", "123345", "123345", "12345", "123456", "123456"]
+
+for i in range(len(t)):
+    ahs = AbsolutHolographicSlotcoding(t[i], c[i])
+    print t[i], c[i], ahs.similarity
