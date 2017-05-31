@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Mar 20 12:35:13 2017
-
 @author: rick
 """
 import numpy as np
@@ -19,6 +18,7 @@ class HoloModel:
     num_trials = 100
     start_sparse = None
     do_sparse = False
+    use_adjusted_majority_tie = True
 
     def __init__(this, template, compare):
         this.template = template
@@ -68,15 +68,17 @@ class HoloModel:
             elif maj_score < 0:
                 new_vector.append(0)
             else:
-                new_vector.append(np.random.choice(2, 1)[0])
+                if this.use_adjusted_majority_tie is True:
+                    new_vector.append(0.5)
+                else:
+                    new_vector.append(np.random.choice(2, 1)[0])
         # print np.sum(new_vector)
         return new_vector
 
     def hamming_similarity(this, vector_1, vector_2):
         sim_score = 0.0
         for i, j in zip(vector_1, vector_2):
-            if i == j:
-                sim_score = sim_score + 1.0
+                sim_score = sim_score + 1.0 - abs(i-j)
         ham_score = 1.0 - sim_score / len(vector_1)
         return ham_score
 
@@ -115,7 +117,6 @@ class HoloModel:
 
     def similarity(this, vector_1, vector_2):
         """Correcting for the fact that my vectors are not orthogonal.
-
         Altough it is an ugly fix, it still produces the same numbers as
         mentioned in the paper
         """
@@ -159,12 +160,12 @@ def test():
     compare = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
                "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
                "21436587", "125436", "13d45", "12345", "34567", "13457",
-               "123267", "123567", "BAAR", "BAR", "BAR", "BAAR", "boor"]
+               "123267", "123567", "12dd45", "12de45", "1234525", "1346", "1436"]
     template = ["12345", "12345", "12345", "12345", "12345", "12345",
                 "123456", "123456", "12345", "12345", "12345", "12345",
                 "12345678", "123456", "12345", "1234567", "1234567", "1234567",
-                "1232567", "1232567", "BEER", "BEER", "BOER", "BOER", "buur"]
-    for i in range(20, 25):
+                "1232567", "1232567", "123345", "123345", "12345", "123456", "123456"]
+    for i in range(20):
         hm = HoloModel(template[i], compare[i])
         # sm.print_banks()
         print str(i+1), ' t: ', template[i], 'c: ', compare[i], \
