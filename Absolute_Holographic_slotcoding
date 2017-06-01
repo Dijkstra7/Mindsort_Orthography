@@ -68,16 +68,21 @@ class AbsolutHolographicSlotcoding:
         return chunked
 
     def compare(self, v1, v2):
-        total = 0.0
-        for i in range(len(v1)):
-                total = total + 1.0 - abs(v1[i]-v2[i])
+        for i,j in zip(v1, v2):
+            if i==j:
+                if i==0.5:
+                    total = total - 0.5 # adjust for ties
+                total = total + 1.0
+            else:
+                if abs(i-j)==0.5:
+                    total = total + 0.5
         return total / self.num_cases
 
 
 c = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
      "12d456", "12d4d6", "d2345", "12d45", "1234d", "12435",
      "21436587", "125436", "13d45", "12345", "34567", "13457",
-     "123267", "123567", "12dd45", "12de45", "1234525", "1346", "1436"]
+     "123267", "123567", "12dd45", "12de45", "12345345", "1346", "1436"]
 
 t = ["12345", "12345", "12345", "12345", "12345", "12345",
      "123456", "123456", "12345", "12345", "12345", "12345",
