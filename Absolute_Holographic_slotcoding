@@ -68,6 +68,7 @@ class AbsolutHolographicSlotcoding:
         return chunked
 
     def compare(self, v1, v2):
+        total = 0
         for i,j in zip(v1, v2):
             if i==j:
                 if i==0.5:
