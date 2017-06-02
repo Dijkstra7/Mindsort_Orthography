@@ -237,6 +237,8 @@ class Bank:
         """
         for other_rec in bank:
             if self.identity == other_rec.identity:
+                if self.position == other_rec.position:
+                    break
                 if self.win_rec_pos >= len(other_rec.receivers):
                     break
                 if closer_to_0(self.receivers[self.win_rec_pos].delay,
