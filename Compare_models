@@ -1,0 +1,1019 @@
+""" This is the implementation for the different models used in the thesis 
+"Modelling the similarity between written words".
+
+The four models, holographic slotcoding, weighted open bigrams, spatial coding,
+and extended spatial coding, are each compared on 25 different constraints.
+
+01234567890123456789012345678901234567890123456789012345678901234567890123456789
+"""
+
+# imports
+import numpy as np
+import math
+
+# constraints
+targets = ["12345", "12345", "12345", "12345", "12345", "12345",
+           "12345", "12345", "12345", "12345", "12345", "12345678", "123456", 
+           "123456", "123456", "12345", "123456", "123456", "1234567", 
+           "1234567", "1234567", "1232567", "1232567", "123345", "123345"]
+
+primes = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
+          "12345345", "d1234", "12d45", "1234d", "12435", "21436587", "12d456",
+          "125436", "12d4d6", "13d45", "1346", "1436", "12345",
+          "34567", "13457", "123267", "123567", "12dd45", "12de45"]
+
+
+# Implementation of extended spatial coding.
+class SpatialModelExtended:
+    """ Implementation of the extended version of spatial coding.
+
+    Like the implementation of spatial coding, the implementation is based on
+    the first 16 equations in Davis's paper of spatial coding (2010). This 
+    model is extended with a letter doubling function, based on the paper of
+    Fischer-Baum.
+
+    Args:
+        target: A string containing the target.
+        prime: A string containing the prime.
+        ELM: A boolean indicating whether ELM will be used.
+
+    Attributes:
+        target: A string containing the target.
+        prime: A string containing the prime.
+        ELM: A boolean indicating if ELM will be used.
+        sigma_0: A float value set for sigma_0
+        k_0: A float value set for k_0
+        sigma: A float representing a level of uncertainty. Based on sigma_0,
+            k_0 and the length of the target.
+        banks_of_receivers: A list of the banks of receivers belonging to the 
+            target.
+        weight: A float value for the size of the weights for the ELM and the
+            raw match score.
+        double_weight: A float value used for combining the match score with the
+            double letter marker.
+        similarity_score: the score obtained comparing a target with a prime
+    """
+
+    def __init__(self, target, prime, ELM=True):
+        self.target = target
+        self.prime = prime
+        self.ELM = ELM
+        self.banks_of_receivers = []
+
+        # Determine sigma.
+        self.sigma_0 = 0.25  # As stated in table 3 in spatial coding.
+        self.k_0 = 0.19      # As stated in table 3 in spatial coding.
+        self.sigma = self.calculate_sigma(len(prime))
+
+        # Determine weights
+        self.weight = 1.0/(len(target))
+        if ELM:
+            self.weight = 1.0/(len(target)+2)
+        self.double_weight = 1.0 / self.sigma
+
+        # Set up the receivers
+        self.initialise_receivers(target, prime, self.sigma)
+
+        # Calculate the similarity.
+        self.similarity_score = self.match()
+
+    def calculate_sigma(self, length):
+        """ Calculate the value for sigma.
+
+        Equation 3 in spatial coding. The assumption that longer strings result 
+        in more uncertainty and thus bigger sigmas is implemented here.
+        
+        Args:
+            length: An integer counting the number of letters in a word.
+        
+        Returns:
+            float: The return value. The value for sigma.
+        """
+        sigma = self.sigma_0 + self.k_0*length
+        return sigma
+
+    def initialise_receivers(self, target, prime, sigma):
+        """ Determines and correctly activates the receivers.
+        
+        Determines what banks of receivers will belong to the target. Then
+        activates the clones in the banks based on the letters of the prime.
+        After that, determines the resonating phase and finally inhibits the
+        clones that fit the resonating phase less.
+        
+        Args:
+            target: A string containing the target.
+            prime: A string containing the prime.
+            sigma: A float representing the value of sigma.
+        """
+        # Determine the Banks of Receivers.
+        for position, identity in enumerate(target):
+            double = self.letter_is_double(position, identity)
+            new_bank = ESCBank(identity, len(prime), position, sigma, double)
+            self.banks_of_receivers.append(new_bank)
+
+        # Activate the receivers based on the letters of the prime.
+        for position, identity in enumerate(prime):
+            for bank_pos, bank in enumerate(self.banks_of_receivers):
+                bank.activate_receivers(identity, position, bank_pos)
+
+        # Determine the resonating Phase
+        max_range = min(len(target), len(prime)) + 1
+        res_phase = self.find_resonating_phase(max_range)
+
+        # inhibit losing receivers within a bank    
+        for bank in self.banks_of_receivers:
+            bank.update_receivers(res_phase)
+
+        # inhibit losing receivers between banks
+        for bank in self.banks_of_receivers:
+            if bank.win_rec_pos is not None:
+                bank.cross_bank_winner(self.banks_of_receivers, res_phase)
+
+    def letter_is_double(self, position, letter):
+        """ Checks whether a letter is double.
+
+        Check if previous or next letter of the targetword is the same as the
+        current letter. 
+        
+        Args:
+            position: integer count for the position of the letter that is 
+                checked.
+            letter: String with the identity of the letter that is checked.
+        
+        Returns:
+            bool: The return value. True if the previous or next letter has the
+                same identity. False otherwise.
+        """
+        double = False
+        if position > 0:                     # Else there is no previous letter
+            if self.target[position-1] == letter:
+                double = True
+        if position < len(self.target) - 1:  # Else there is no next letter
+            if self.target[position+1] == letter:
+                double = True
+        return double
+
+    def find_resonating_phase(self, max_dist):
+        """ Determining the resonating phase.
+
+        Implementing the determination of the resonating phase: According to 
+        Davis the resonating phase corresponds to the peak of the superposition.
+
+        Args:
+            max_dist: An integer giving the maximum distance 
+        
+        Returns:
+            integer: The return value. Represents the position with the highest
+                activation.
+        """
+        # initialise
+        min_dist = -1*max_dist
+        best_pos = min_dist
+        best_score = self.super_position(min_dist)
+
+        # Find the position with the highest peak (= summed activation)
+        for position in range(min_dist, max_dist):
+            score = self.super_position(position)
+            if score > best_score:
+                best_pos = position
+                best_score = score
+        return best_pos
+
+    def super_position(self, position):
+        """ Calculating the superposition.
+
+        Equation 15 in spatial coding. Following from equation 10: 'The
+        superposition function is found by summing across the receiver functions
+        for each of the target’s receivers'. 
+        In this extended version of spatial coding, the superposition function
+        is extended with a double letter marker. 
+        This DLM will increase the activation of a bank if the bank represents a
+        doubled letter and the prime contains doubled letters.
+        
+        Args:
+            position: An integer representing the relative position where the
+            superposition function will add.
+        
+        Returns:
+            float: The return value. The score obtained by summing the
+            activation of the receiver clone nodes at a certain position.
+        """
+        super_position_score = 0
+        for bank in self.banks_of_receivers:
+            weight = self.weight
+            dw = self.double_weight
+
+            # Calculating the activation of the receiver in this bank.
+            if self.prime_has_double() and bank.double:  #increasing activation.
+                new_weight = weight * (1.0 - dw)
+                extra_act = new_weight * dw
+                winning_receiver_score = new_weight*bank.receiver(position)
+                winning_receiver_score = winning_receiver_score + extra_act
+            else:  # No increasing activation.
+                winning_receiver_score = weight*bank.receiver(position)
+            
+            # Adding the activation of the receiver in this bank.
+            super_position_score = super_position_score + \
+                winning_receiver_score
+        return super_position_score
+
+    def prime_has_double(self):
+        """ Check if there is a double letter in the input
+        
+        Returns:
+            bool: The return value. True if the prime has doubled letters. False
+                otherwise.
+        """
+        old_letter = ''
+        for letter in self.prime:
+            if letter == old_letter:
+                return True
+            old_letter = letter
+        return False
+
+    def match(self):
+        """ Calculating the similarity value between a target and a prime.
+        
+        Equation 14 in spatial coding. Combining the superposition at the
+        resonating phase with the score of the end letter marking.
+        
+        Returns:
+            float: The return value. Representing the similarity value between a
+                target and a prime.
+        """
+        max_dist = min(len(self.target), len(self.prime)) + 1
+        res_phase = self.find_resonating_phase(max_dist)
+        match_score = self.super_position(res_phase)+self.ELM_score()
+        return match_score
+
+    def ELM_score(self):
+        """ Calculating the external letter match.
+
+        Calculating the match between the external letters of the prime and the
+        external letters of the target with the product of the amount of matches
+        and the weight for the external letters.
+        
+        Returns:
+            float: The return value. represents the activation given by ELM.
+        """
+        if self.ELM is False:
+            return 0
+        score = 0
+        if self.target[0] == self.prime[0]:  # Match between first letters
+            score = self.weight
+        if self.target[-1] == self.prime[-1]:  # Match between last letters.
+            score = score + self.weight
+        return score
+
+
+class ESCBank:
+    """ The class representing a bank of receivers.
+    
+    A bank of receiver contains different clone nodes that code for different
+    relative distances of letters. It can determine the winning receiver clone
+    node in the bank itself and the winning receiver node compared to the other
+    banks of receivers.
+    
+    Args:
+        identity: A string representing the identity of the letter the bank
+            represents.
+        n_receivers: An integere coding the number of receiver clones in this 
+            bank.
+        position: An integer coding the position of the letter the bank
+            represents.
+        sigma: A float representing the value for sigma.
+        double: A bool. True if the letter in this bank is doubled with another
+            letter.
+    
+    Attributes:
+        identity: A string representing the identity of the letter the bank
+            represents.
+        position: An integer coding the position of the letter the bank
+            represents.
+        sigma: A float representing the value for sigma.
+        double: A bool. True if the letter in this bank is doubled with another
+            letter.
+        receivers: A list containing the receiver clone nodes.
+        win_rec_pos: an integer pointing to the position of the winning
+            receiver clone node.
+        
+    """
+
+    def __init__(self, identity, n_receivers, position, sigma, double):
+        self.identity = identity
+        self.position = position
+        self.sigma = sigma
+        self.double = double
+        self.receivers = []
+        for pos_receiver in range(n_receivers):
+            self.receivers.append(ESCReceiver(pos_receiver, False, sigma))
+        win_rec_pos = 0
+
+    def activate_receivers(self, id_input, pos_input, pos_self):
+        if self.identity == id_input:
+            self.receivers[pos_input].set_pos(pos_self)
+
+    def update_receivers(self, res_phase):
+        win_id = 0
+        self.receivers[0].won()
+        for id_r, r in enumerate(self.receivers):
+            if self.closer_to_0(self.receivers[win_id].pos, r.pos, res_phase):
+                self.receivers[win_id].lost()
+                self.win_rec_pos = id_r
+                self.winning_clone_activation = \
+                    self.receiver(self.position)
+                win_id = id_r
+                self.receivers[win_id].won()
+
+    def cross_bank_winner(self, bank, res_phase):
+        """ De-activates the reeiverbank if there is another receiver with
+        less delay.
+        """
+        for other_rec in bank:
+            if self.identity == other_rec.identity:
+                if self.position == other_rec.position:
+                    break
+                if self.win_rec_pos >= len(other_rec.receivers):
+                    break
+                if self.closer_to_0(self.receivers[self.win_rec_pos].pos,
+                               other_rec.receivers[self.win_rec_pos].pos, res_phase):
+                    self.receivers[self.win_rec_pos].lost_across()
+                    self.win_rec_pos = None
+                    self.winning_receiver_activation = 0
+                    break
+
+    def receiver(self, letter_position):
+        """ Return the receiver value for the winning receiver.
+        """
+        highest_score = 0
+        for receiver in self.receivers:
+            highest_score = max(highest_score, 
+                                receiver.receiver(letter_position))
+        return highest_score
+
+    def closer_to_0(self, current, contender, res_phase):
+        if contender is None:
+            return False
+        if current is None:
+            return True
+        if abs(current - res_phase)-abs(contender - res_phase) >= 0:
+            return True
+        return False
+
+    def printself(self):
+        print 'id: ', self.identity
+        for id_, rec in enumerate(self.receivers):
+            suffix = ''
+            if self.double is True:
+                suffix = ' (D)'
+            if rec.winning is True:
+                suffix = suffix + ' <= winner'
+            print str(id_+1)+" "+str(rec.pos)+suffix
+
+
+class ESCReceiver:
+    winning = False
+    position = None
+    pos = None
+    sigma = 0
+
+    def __init__(self, position, winning, sigma):
+        self.winning = winning
+        self.position = position
+        self.sigma = sigma
+
+    def won(self):
+        self.winning = True
+
+    def lost(self):
+        self.winning = False
+
+    def lost_across(self):
+        self.winning = False
+        self.pos = None
+
+    def set_pos(self, difference):
+        self.pos = self.position - difference
+
+    def receiver(self, letter_position):
+        """ equation 9 in spatial coding.
+        self equation calculates the activation of a receiver in a bank on a
+        channel.
+        The bank is the expected letter position.
+        Not sure if identity or channel has to be implemented. in the SC paper
+        it stands for the identity of the i'th word.
+        """
+        return self.signal(letter_position)
+
+    def signal(self, letter_position):
+        """ Equation 4 in spatial coding
+        The signal function varies as a function of position, where the
+        central tendency of the function represents the veridical letter
+        position (posj), and the width of the function reflects the degree
+        of letter position uncertainty.
+        The signal function in Equation 4 also varies over time (t).
+        Because the second part of this equation is equal to the spatial
+        equation, I changed it here.
+        """
+        return self.activation(letter_position)*self.spatial(letter_position)
+
+    def activation(self, position):
+        """ Give the activation level of a clone.
+        If there is a winning clone, the activation given for that clone is 1
+        else there is no clone in this bank firing and the activation is 0
+        """
+        if self.winning is True:
+            return 1
+        return 1
+
+    def spatial(self, letter_pos):
+        """ equation 1 in spatial coding
+        letter_pos indexes the letters within the spatial code and goal_pos
+        is the (veridical) serial position of the letter within the input
+        stimulus.
+        """
+        if self.pos is None:             # Ugly hack
+            return 0
+        power = (letter_pos-self.pos)/self.sigma
+        return math.exp(-1*power**2)
+
+    def calculate_pos(self, letter_pos):
+        """ the delay implemented by the SC model
+        The value of delayri corresponds to the expected ordinal position of
+        the corresponding letter within the target.
+        """
+        return self.position-letter_pos
+
+
+# Implementation of spatial coding.
+class SpatialModel:
+    """ The model that implements Spatial Coding.
+
+    This model is based on the description of the 16 formula's Davis (2010) has
+    mentioned in his paper about Spatial Coding.
+    
+    """
+    # Set up the parameters
+    similarity_score = 0
+    sigma_0 = 0.25  # As stated in table 3 in spatial coding.
+    k_0 = 0.19      # As stated in table 3 in spatial coding.
+    sigma = 0
+    banks_of_receivers = []
+    weight = 0
+    target = 'spam'
+    prime = 'eggs'
+    ELM = True
+
+    def __init__(self, target, prime, ELM=True):
+        self.target = target
+        self.prime = prime
+        self.banks_of_receivers = []
+        self.ELM = ELM
+
+        # Calculate the sigma and weight of the gaussians.
+        sigma = self.calculate_sigma(len(prime))
+        self.sigma = sigma
+        self.weight = 1.0/(len(target))
+        if ELM:
+            self.weight = 1.0/(len(target)+2)
+        # Set up the receivers
+        self.initialise_receivers(target, prime, sigma)
+        self.similarity_score  =self.match()
+
+    def initialise_receivers(self, target, prime, sigma):
+        """
+        - Initialise the receivers based on the target
+        - Activate the receivers
+        - Deactivate the not-winning receivers
+        """
+        # Create the receivers.
+        # print "-----------create receivers-----------"
+        for position, identity in enumerate(target):
+            self.banks_of_receivers.append(Bank(identity, len(prime),
+                                                position, sigma))
+
+        # Activate the receivers
+        # print "-----------activate receivers---------"
+        for position, identity in enumerate(prime):
+            for bank_pos, bank in enumerate(self.banks_of_receivers):
+                bank.activate_receivers(identity, position, bank_pos)
+
+        # Find the resonating Phase
+        res_phase = self.find_resonating_phase(abs(len(target) - 
+                                                  len(prime)) + 1)
+
+        # De-activate losing receivers in bank    
+        for bank in self.banks_of_receivers:
+            bank.update_receivers(res_phase)
+
+        # Eliminate losing receivers between banks
+        for bank in self.banks_of_receivers:
+            if bank.win_rec_pos is not None:
+                bank.cross_bank_winner(self.banks_of_receivers, res_phase)
+
+    def calculate_sigma(self, length):
+        """ equation 3 in spatial coding
+        the assumption that longer words wil have bigger sigma's is
+        implemented here.
+        """
+        return self.sigma_0 + self.k_0*length
+
+    def super_position(self, position):
+        """ equation 10 in spatial coding.
+        'The superposition function is found by summing across the receiver
+        functions for each of the target’s receivers'
+        """
+        super_position_score = 0
+        for bank in self.banks_of_receivers:
+            winning_receiver_score = self.weight*bank.receiver(position)
+            super_position_score = super_position_score + \
+                winning_receiver_score
+        return super_position_score
+
+    def match(self):
+        """ equation 7 in spatial coding
+        matching the target with the prime.
+        """
+        match_score = 0
+        target_length = len(self.target)
+        prime_length = len(self.prime)
+        res_phase = self.find_resonating_phase(abs(target_length -
+                                                   prime_length) + 1)
+        match_score = self.super_position(res_phase)+self.ELM_score()
+        return match_score
+
+    def find_resonating_phase(self, max_dist):
+        """
+        The resonating phase corresponds to the value of the signal-weight
+        difference where the superposition function is at its peak
+        """
+        min_dist = -1*max_dist
+        best_pos = (min_dist, self.super_position(min_dist))
+        for pos in range(min_dist, max_dist):
+            score = self.super_position(pos)
+            if score > best_pos[1]:
+                best_pos = (pos, score)
+        return best_pos[0]
+
+    def ELM_score(self):
+        if self.ELM is False:
+            return 0
+        score = 0
+        if self.target[0] == self.prime[0]:
+            score = score + self.weight
+        if self.target[-1] == self.prime[-1]:
+            score = score + self.weight
+        return score
+
+
+class Bank:
+    """
+    the structure of a receiver
+    """
+    identity = 'a'
+    receivers = []
+    position = -1
+    win_rec_pos = 0
+    sigma = 0
+
+    def __init__(self, identity, n_receivers, position, sigma):
+        self.identity = identity
+        receivers = []
+        for pos_receiver in range(n_receivers):
+            receivers.append(Receiver(pos_receiver, False, sigma))
+        self.receivers = receivers
+        self.position = position
+        self.sigma = sigma
+
+    def activate_receivers(self, id_input, pos_input, pos_self):
+        if self.identity == id_input:
+            self.receivers[pos_input].set_pos(pos_self)
+
+    def update_receivers(self, res_phase):
+        win_id = 0
+        self.receivers[0].won()
+        for id_r, r in enumerate(self.receivers):
+            if self.closer_to_0(self.receivers[win_id].pos, r.pos, res_phase):
+                self.receivers[win_id].lost()
+                self.win_rec_pos = id_r
+                self.winning_clone_activation = \
+                    self.receiver(self.position)
+                win_id = id_r
+                self.receivers[win_id].won()
+
+    def cross_bank_winner(self, bank, res_phase):
+        """ De-activates the reeiverbank if there is another receiver with
+        less delay.
+        """
+        for other_rec in bank:
+            if self.identity == other_rec.identity:
+                if self.position == other_rec.position:
+                    break
+                if self.win_rec_pos >= len(other_rec.receivers):
+                    break
+                if self.closer_to_0(self.receivers[self.win_rec_pos].pos,
+                               other_rec.receivers[self.win_rec_pos].pos, res_phase):
+                    self.receivers[self.win_rec_pos].lost_across()
+                    self.win_rec_pos = None
+                    self.winning_receiver_activation = 0
+                    break
+
+    def receiver(self, letter_position):
+        """ Return the receiver value for the winning receiver.
+        """
+        highest_score = 0
+        for receiver in self.receivers:
+            highest_score = max(highest_score, 
+                                receiver.receiver(letter_position))
+        return highest_score
+
+    def closer_to_0(self, current, contender, res_phase):
+        if contender is None:
+            return False
+        if current is None:
+            return True
+        if abs(current - res_phase)-abs(contender - res_phase) >= 0:
+            return True
+        return False
+
+    def printself(self):
+        print 'id: ', self.identity
+        for id_, rec in enumerate(self.receivers):
+            suffix = ''
+            if rec.winning is True:
+                suffix = ' <= winner'
+            print str(id_+1)+" "+str(rec.pos)+suffix
+
+
+class Receiver:
+    winning = False
+    position = None
+    pos = None
+    sigma = 0
+
+    def __init__(self, position, winning, sigma):
+        self.winning = winning
+        self.position = position
+        self.sigma = sigma
+
+    def won(self):
+        self.winning = True
+
+    def lost(self):
+        self.winning = False
+
+    def lost_across(self):
+        self.winning = False
+        self.pos = None
+
+    def set_pos(self, difference):
+        self.pos = self.position - difference
+
+    def receiver(self, letter_position):
+        """ equation 9 in spatial coding.
+        self equation calculates the activation of a receiver in a bank on a
+        channel.
+        The bank is the expected letter position.
+        Not sure if identity or channel has to be implemented. in the SC
+        paper
+        it stands for the identity of the i'th word.
+        """
+        return self.signal(letter_position)
+
+    def signal(self, letter_position):
+        """ Equation 4 in spatial coding
+        The signal function varies as a function of position, where the
+        central tendency of the function represents the veridical letter
+        position (posj), and the width of the function reflects the degree
+        of letter position uncertainty.
+        The signal function in Equation 4 also varies over time (t).
+        Because the second part of this equation is equal to the spatial
+        equation, I changed it here.
+        """
+        return self.activation(letter_position)*self.spatial(letter_position)
+
+    def activation(self, position):
+        """ Calculate the activation level of a clone.
+        If there is a winning clone, the activation given for that clone is 1
+        else there is no clone in this bank firing and the activation is 0
+        """
+        if self.winning is True:
+            return 1
+        return 1
+
+    def spatial(self, letter_pos):
+        """ equation 1 in spatial coding
+        letter_pos indexes the letters within the spatial code and goal_pos
+        is the (veridical) serial position of the letter within the input
+        stimulus.
+        """
+        if self.pos is None:             # Ugly hack
+            return 0
+        power = (letter_pos-self.pos)/self.sigma
+        return math.exp(-1*power**2)
+
+    def calculate_pos(self, letter_pos):
+        """ the delay implemented by the SC model
+        The value of delayri corresponds to the expected ordinal position of
+        the corresponding letter within the target.
+        """
+        return self.position-letter_pos
+
+
+class HoloModel:
+
+    similarity_score = 0.0
+    target = ""
+    prime = ""
+    used_letters = []
+    letter_vectors = []
+    position_vectors = []
+    max_pos = 0
+    num_trials = 100
+    start_sparse = None
+    do_sparse = False
+    use_adjusted_majority_tie = True
+
+    def __init__(self, target, prime):
+        self.target = target
+        self.prime = prime
+        s = set(prime+target)
+        self.get_used_letters(s)
+        self.similarity_score = self.calculate_similarity("Slot coding")
+
+    def create_position_vectors(self):
+        self.position_vectors = []
+        num_positions = max(len(self.prime), len(self.target))
+        for position in range(num_positions):
+            self.position_vectors.append(HoloRep(True, "", self.start_sparse))
+            if self.do_sparse:
+                self.start_sparse = self.start_sparse + 1
+
+    def create_letter_vectors(self):
+        self.letter_vectors = []
+        for letter in self.used_letters:
+            self.letter_vectors.append(HoloRep(False, letter,
+                                               self.start_sparse))
+            if self.do_sparse:
+                self.start_sparse = self.start_sparse + 1
+
+    def get_used_letters(self, s):
+        for i in range(len(s)):
+            self.used_letters.append(s.pop())
+
+    def chunk_rule(self, vector_1, vector_2):
+        new_vector = [self.x_or(x) for x in zip(vector_1, vector_2)]
+        return new_vector
+
+    def x_or(self, elements):
+        if elements[0] == elements[1]:
+            return 0
+        return 1
+
+    def bind_rule(self, vectors):
+        number_vectors = len(vectors)
+        new_vector = []
+        for element_id in range(len(vectors[0])):
+            maj_score = 0
+            for i in range(number_vectors):
+                maj_score = maj_score + vectors[i][element_id] * 2 - 1
+            if maj_score > 0:
+                new_vector.append(1)
+            elif maj_score < 0:
+                new_vector.append(0)
+            else:
+                if self.use_adjusted_majority_tie is True:
+                    new_vector.append(0.5)
+                else:
+                    new_vector.append(np.random.choice(2, 1)[0])
+        # print np.sum(new_vector)
+        return new_vector
+
+    def hamming_similarity(self, vector_1, vector_2):
+        sim_score = 0.0
+        for i, j in zip(vector_1, vector_2):
+                sim_score = sim_score + 1.0 - abs(i-j)
+        ham_score = 1.0 - sim_score / len(vector_1)
+        return ham_score
+
+    def calculate_similarity(self, method="Slot coding"):
+        sim_score = 0.0
+        if method == "Slot coding":
+            for i in range(self.num_trials):
+                sim_score = sim_score + self.calculate_similarity_slotcoding()
+        return sim_score / self.num_trials
+
+    def calculate_similarity_slotcoding(self):
+        if self.do_sparse:
+            self.start_sparse = 0
+        self.create_letter_vectors()
+        self.create_position_vectors()
+        prime_vector = self.set_vectors(self.prime)
+        # self.create_letter_vectors()
+        target_vector = self.set_vectors(self.target)
+        return self.similarity(prime_vector, target_vector)
+
+    def set_vectors(self, word):
+        return self.bind_rule(self.chunk_positions_and_letters(word))
+
+    def chunk_positions_and_letters(self, word):
+        vectors = []
+        for i in range(len(word)):
+            vectors.append(self.chunk_rule(self.position_vectors[i].vector,
+                                           self.find_vector(word[i])))
+        # print [np.sum(x) for x in vectors]
+        return vectors
+
+    def find_vector(self, letter):
+        for vector in self.letter_vectors:
+            if vector.identity == letter:
+                return vector.vector
+
+    def similarity(self, vector_1, vector_2):
+        """Correcting for the fact that my vectors are not orthogonal.
+        Altough it is an ugly fix, it still produces the same numbers as
+        mentioned in the paper
+        """
+        c = self.hamming_similarity(vector_1, vector_2)
+        # print c
+        return 1.0 - (2.0 * abs(c))
+
+
+class HoloRep:
+
+    identity = ""
+    is_position = False
+    vector = []
+    vector_dimension = 1000
+
+    def __init__(self, is_pos, identity="", start_sparse=None):
+        self.vector = self.generate_vector(self.vector_dimension,
+                                           start_sparse)
+        if is_pos is False:
+            self.identity = identity
+        self.is_position = is_pos
+
+    def generate_vector(self, size, start_sparse=None):
+        if start_sparse is None:
+            halfsize = size / 2
+            halfsizeodd = size / 2 + size % 2
+            vector = np.array([0] * halfsize + [1] * halfsizeodd)
+            np.random.shuffle(vector)
+            return vector
+        vector = []
+        for i in range(10):
+            if i == start_sparse:
+                addvector = 100*[1]
+            else:
+                addvector = 100*[0]
+            vector = vector + addvector
+        return vector
+
+
+class BigramModel:
+
+    weight_bigrams = [1.0, 0.8, 0.4] #weights from whitney (2008) or even (2012)
+    target = ""
+    prime = ""
+    similarity_score = 0
+    target_bigrams = []
+    activated_bigrams = []
+
+    def __init__(self, target, prime):
+        self.target = target
+        self.prime = prime
+        self.activated_bigrams = []
+        self.make_target_bigrams()
+        self.calculate_similarity_score()
+
+    def make_target_bigrams(self):
+        """ For each level of seperation between the bigrams, make a new list of
+        those bigrams.
+        i_letter_sep+1 has a plus 1 because the next letter is also already 1
+        position removed when there is a zero-letter seperation."""
+        self.target_bigrams = []
+        temp = self.target
+        for i_letter_sep in range(3):
+            self.target_bigrams.append(self.make_bigrams(i_letter_sep+1,
+                                                           temp))
+        # print self.target_bigrams
+
+    def make_bigrams(self, sep, temp):
+        """ make the bigrams seperated by sep - 1 letters (-1, see comment in
+        make_target_bigrams).
+        """
+        bigrams = []
+        for start in range(len(temp)-(sep)):
+            first = temp[start]  # first letter of bigram
+            last = temp[start+sep]  # last letter of bigram
+            bigrams.append(first+last)  # The one-letter seperated bigrams
+        return bigrams
+
+    def calculate_similarity_score(self):
+        """
+        similarity_score is calculated by taking the maximum possible score
+        and dividing it by the activationscore.
+        """
+        full_score = self.calculate_bigram_match(self.target, self.target)
+        score = self.calculate_bigram_match(self.target, self.prime)
+        self.similarity_score = score/full_score
+
+    def calculate_bigram_match(self, temp_word, comp_word):
+        """
+        bigram_match is the activation score of a word on the target word:
+        "each OBs activation is multiplied by the corresponding weight, and
+        lexical input is the sum of these products."
+        The maximum match is where the temp_word is the same as the comp_word.
+        for each x-letter seperated bigram of the comp_word, the dotproduct is
+        made with the matching bigrams in the targetword.
+        """
+        match = 0.0
+        self.activated_bigrams = []
+        for i in range(3):
+            w = self.weight_bigrams[i]
+            single_match = \
+                w * self.sum_matching(self.make_bigrams(i+1, comp_word))
+            single_match = single_match / (5.0-i)   # Normalize for length of
+            match = match + single_match            # target
+        match = match + self.add_edge_score(temp_word, comp_word)   
+        normalised = 20.0/(20.0+len(comp_word))
+        return normalised*match
+
+    def sum_matching(self, bigrams):
+        """
+        For a list of bigrams (of the comparing word) the score of activated
+        matches is added.
+        """
+        score = 0.0
+        for bigram in bigrams:
+            for i in range(3):
+                if bigram in self.target_bigrams[i]:
+                    if bigram not in self.activated_bigrams:
+                        score = score + self.weight_bigrams[i]
+                        self.activated_bigrams.append(bigram)
+        return score
+
+    def add_edge_score(self, temp, comp):
+        """
+        Adding the score of the edge bigrams.
+        """
+        first_edge = 1.0 * (temp[0] == comp[0])
+        last_edge = 1.0 * (temp[-1] == comp[-1])
+        return first_edge + last_edge
+
+
+# the main program part
+def get_similarity_words(target, prime, model='spatial coding'):
+    """ Returns the similarity value for two words.
+
+    Given a certain model to use to compare two words, this function returns
+    the value that that model assigns to the similarity between the target and
+    the prime.
+    
+    Args:
+        target: The target word
+        prime: The prime word
+        model: The model that will compare the words. When there is no model 
+            specified, spatial coding will be used.
+    
+    returns:
+        A similarity score which is given by the model comparing the two words.
+    """
+    score = 0
+    if model == 'weighted open bigrams':
+        score = BigramModel(target, prime).similarity_score
+    if model == 'spatial coding':
+        score = SpatialModel(target, prime).similarity_score
+    if model == 'extended spatial coding':
+        score = SpatialModelExtended(target, prime).similarity_score
+    if model == 'holographic slot coding':
+        score = HoloModel(target, prime).similarity_score
+    return score
+
+def evaluate_model(model):
+    """ Output the values of a model on the 25 constraints.
+    
+    Print the results of the values a certain model gives on the 25 constraints
+    used in the thesis.
+    
+    args:
+        model: the model for which I will evaluate.
+    """
+    print "Getting values for", model, "model:"
+    nr = 1 
+    max_spaces_t = max([len(x) for x in targets])
+    max_spaces_p = max([len(x) for x in primes])
+    for target, prime in zip(targets, primes):
+        score = get_similarity_words(target, prime, model)
+        spaces_t = "        "[:max_spaces_t-len(target)]
+        spaces_p = "        "[:max_spaces_p-len(prime)]
+        print str(nr), "\tt: ", target, spaces_t, "p: ", prime, spaces_p, \
+            " match equals: ", "%.2f" % score
+        nr = nr + 1
+    print "--------------------------------------------------------------------"
+
+# Program starts here. It retrieves the similarity value given by different
+# models on certain constraints.
+for model in ["holographic slot coding", "weighted open bigrams", 
+              "spatial coding", "extended spatial coding"][1:]:
+    evaluate_model(model)
