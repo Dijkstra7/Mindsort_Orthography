@@ -18,7 +18,7 @@ targets = ["12345", "12345", "12345", "12345", "12345", "12345",
            "1234567", "1234567", "1232567", "1232567", "123345", "123345"]
 
 primes = ["12345", "1245", "123345", "123d45", "12dd5", "1d345",
-          "12345345", "d1234", "12d45", "1234d", "12435", "21436587", "12d456",
+          "12345345", "d2345", "12d45", "1234d", "12435", "21436587", "12d456",
           "125436", "12d4d6", "13d45", "1346", "1436", "12345",
           "34567", "13457", "123267", "123567", "12dd45", "12de45"]
 
@@ -114,7 +114,7 @@ class SpatialModelExtended:
         # Activate the receivers based on the letters of the prime.
         for position, identity in enumerate(prime):
             for bank_pos, bank in enumerate(self.banks_of_receivers):
-                bank.activate_receivers(identity, position, bank_pos)
+                bank.activate_receivers(identity, position)
 
         # Determine the resonating Phase
         max_range = min(len(target), len(prime)) + 1
@@ -307,15 +307,41 @@ class ESCBank:
         self.receivers = []
         for pos_receiver in range(n_receivers):
             self.receivers.append(ESCReceiver(pos_receiver, False, sigma))
-        win_rec_pos = 0
+        self.win_rec_pos = 0
+        self.first_active = None
 
-    def activate_receivers(self, id_input, pos_input, pos_self):
-        if self.identity == id_input:
-            self.receivers[pos_input].set_pos(pos_self)
+    def activate_receivers(self, prime_letter, prime_pos):
+        """ Activates the receivers.
+        
+        This function will activate a receiver clone node if that node is
+        connected with the prime_letter through its position-specific channel.
+        If the identities of the letters is the same, the corresponding clone is
+        activated.
+        
+        Args:
+            prime_letter: A string representing a letter of the prime.
+            prime_pos: An integer coding the position in the position-specific
+                channel.
+        """
+        if self.identity == prime_letter:
+            self.receivers[prime_pos].set_pos(self.position)
+            if self.first_active == None:
+                self.first_active = prime_pos
+                self.win_rec_pos = self.first_active
 
     def update_receivers(self, res_phase):
-        win_id = 0
-        self.receivers[0].won()
+        """ Determines which receivers will still be activated.
+        
+        Evaluates the receivers with each others and only leaves the highest
+        activated.
+        
+        Args:
+            res_phase: The resonating phase determining the position the
+                receivers have to be closest to.
+        """
+        if self.first_active == None: # With no activated receivers, none have 
+            return                    #   to be inhibited.
+        win_id = self.first_active
         for id_r, r in enumerate(self.receivers):
             if self.closer_to_0(self.receivers[win_id].pos, r.pos, res_phase):
                 self.receivers[win_id].lost()
@@ -326,21 +352,36 @@ class ESCBank:
                 self.receivers[win_id].won()
 
     def cross_bank_winner(self, bank, res_phase):
-        """ De-activates the reeiverbank if there is another receiver with
-        less delay.
+        """ Inhibits all but the highest activated clone across the banks.
+
+        Checks for its active clone if there are contestents across the other
+        banks. And if so, will inhibit the least activated clone.
+
+        Args:
+            bank: A list containing all receivers in the same bank.
+            res_phase: An integer coding the resonating phase.
         """
+        if self.first_active == None:  # With no activated receivers, none have
+            return                     #   to be inhibited.        
         for other_rec in bank:
+            if other_rec.first_active == None:
+                break  # If there is no competition, this bank wins.
             if self.identity == other_rec.identity:
                 if self.position == other_rec.position:
-                    break
-                if self.win_rec_pos >= len(other_rec.receivers):
-                    break
-                if self.closer_to_0(self.receivers[self.win_rec_pos].pos,
-                               other_rec.receivers[self.win_rec_pos].pos, res_phase):
-                    self.receivers[self.win_rec_pos].lost_across()
-                    self.win_rec_pos = None
-                    self.winning_receiver_activation = 0
-                    break
+                    break  # A node does not inhibit itself.
+                # check which receiver has the least activation.
+                rel_self = self.win_rec_pos-self.position
+                rel_other = other_rec.win_rec_pos- other_rec.position
+                if self.closer_to_0(rel_self, rel_other, res_phase):
+                    self.inhibit_receiver(self.win_rec_pos)
+                    return
+                else:
+                    other_rec.inhibit_receiver(self.win_rec_pos)
+
+    def inhibit_receiver(self, position):
+        self.receivers[position].lost_across()
+        self.win_rec_pos = None
+        self.winning_receiver_activation = 0
 
     def receiver(self, letter_position):
         """ Return the receiver value for the winning receiver.
@@ -349,6 +390,7 @@ class ESCBank:
         for receiver in self.receivers:
             highest_score = max(highest_score, 
                                 receiver.receiver(letter_position))
+        # print "receiverscore", letter_position, self.position, self.identity, highest_score
         return highest_score
 
     def closer_to_0(self, current, contender, res_phase):
@@ -356,7 +398,7 @@ class ESCBank:
             return False
         if current is None:
             return True
-        if abs(current - res_phase)-abs(contender - res_phase) >= 0:
+        if abs(current - res_phase)-abs(contender - res_phase) > 0:
             return True
         return False
 
@@ -381,19 +423,21 @@ class ESCReceiver:
         self.winning = winning
         self.position = position
         self.sigma = sigma
+        self.activated = False
 
     def won(self):
         self.winning = True
 
     def lost(self):
-        self.winning = False
+        self.activated = False
 
     def lost_across(self):
-        self.winning = False
+        self.activated = False
         self.pos = None
 
     def set_pos(self, difference):
         self.pos = self.position - difference
+        self.activated = True
 
     def receiver(self, letter_position):
         """ equation 9 in spatial coding.
@@ -422,9 +466,9 @@ class ESCReceiver:
         If there is a winning clone, the activation given for that clone is 1
         else there is no clone in this bank firing and the activation is 0
         """
-        if self.winning is True:
-            return 1
-        return 1
+        if self.activated is True:
+             return 1
+        return 0
 
     def spatial(self, letter_pos):
         """ equation 1 in spatial coding
@@ -432,7 +476,7 @@ class ESCReceiver:
         is the (veridical) serial position of the letter within the input
         stimulus.
         """
-        if self.pos is None:             # Ugly hack
+        if self.activated is False:             # Ugly hack
             return 0
         power = (letter_pos-self.pos)/self.sigma
         return math.exp(-1*power**2)
@@ -585,9 +629,9 @@ class Bank:
         self.position = position
         self.sigma = sigma
 
-    def activate_receivers(self, id_input, pos_input, pos_self):
-        if self.identity == id_input:
-            self.receivers[pos_input].set_pos(pos_self)
+    def activate_receivers(self, prime_letter, prime_pos, pos_self):
+        if self.identity == prime_letter:
+            self.receivers[prime_pos].set_pos(pos_self)
 
     def update_receivers(self, res_phase):
         win_id = 0
@@ -595,6 +639,7 @@ class Bank:
         for id_r, r in enumerate(self.receivers):
             if self.closer_to_0(self.receivers[win_id].pos, r.pos, res_phase):
                 self.receivers[win_id].lost()
+                
                 self.win_rec_pos = id_r
                 self.winning_clone_activation = \
                     self.receiver(self.position)
@@ -1004,6 +1049,11 @@ def evaluate_model(model):
     max_spaces_t = max([len(x) for x in targets])
     max_spaces_p = max([len(x) for x in primes])
     for target, prime in zip(targets, primes):
+        # ####### TEST ####### #
+        # if nr != 23:
+        #     nr = nr + 1
+        #     continue
+        # ####### END TEST ### #
         score = get_similarity_words(target, prime, model)
         spaces_t = "        "[:max_spaces_t-len(target)]
         spaces_p = "        "[:max_spaces_p-len(prime)]
@@ -1017,3 +1067,4 @@ def evaluate_model(model):
 for model in ["holographic slot coding", "weighted open bigrams", 
               "spatial coding", "extended spatial coding"][1:]:
     evaluate_model(model)
+    
